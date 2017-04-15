@@ -1,3 +1,6 @@
+import java.util.*;
+import java.io.*;
+import java.math.*; 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
@@ -20,8 +23,40 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-class Referee extends MultiReferee {
-    private static final int LEAGUE_LEVEL = 3;
+import javax.net.ssl.ExtendedSSLSession;
+
+class LostException extends Exception {
+    public LostException(String message) {
+        super(message);
+    }
+}
+
+class InvalidInputException extends Exception {
+    public InvalidInputException(String message, String line) {
+        super(message + line);
+    }
+}
+
+class InvalidFormatException extends Exception {
+    public InvalidFormatException(String message) {
+        super(message);
+    }
+}
+
+class GameOverException extends Exception {
+    public GameOverException(String message) {
+        super(message);
+    }
+}
+
+class WinException extends Exception {
+    public WinException(String message) {
+        super(message);
+    }
+}
+
+class Referee {
+    private static final int LEAGUE_LEVEL = 1;
 
     private static final int MAP_WIDTH = 23;
     private static final int MAP_HEIGHT = 21;
@@ -309,6 +344,11 @@ class Referee extends MultiReferee {
         public String toPlayerString(int playerIdx) {
             return toPlayerString(ownerEntityId, remainingTurns, 0, 0);
         }
+
+        public void update(int arg2)
+        {
+            this.remainingTurns = arg2;
+        }
     }
 
     public static class RumBarrel extends Entity {
@@ -325,6 +365,15 @@ class Referee extends MultiReferee {
 
         public String toPlayerString(int playerIdx) {
             return toPlayerString(health, 0, 0, 0);
+        }
+
+        public void update(int entityId, int x, int y, int health)
+        {
+            if (this.id == entityId)
+            {
+                this.position = new Coord(x, y);
+                this.health = health;
+            }
         }
     }
 
@@ -385,6 +434,29 @@ class Referee extends MultiReferee {
                 message = message.substring(0, 50) + "...";
             }
             this.message = message;
+        }
+
+        public RumBarrel closestBarrel(List<RumBarrel> barrels) throws ExceptionInInitializerError
+        {
+            int minDistance = 99;
+            if (0 < barrels.size())
+            {
+                RumBarrel closestBarrel = null;
+                for (RumBarrel barrel : barrels)
+                {
+                    int distance = this.position.distanceTo(barrel.position);
+                    if (distance < minDistance) 
+                    {
+                        minDistance = distance;
+                        closestBarrel = barrel;
+                    }
+                }
+                return closestBarrel;
+            }
+            else
+            {
+                throw new ExceptionInInitializerError("No barrel left");
+            }
         }
 
         public void moveTo(int x, int y) {
@@ -595,6 +667,19 @@ class Referee extends MultiReferee {
                 this.action = Action.FIRE;
             }
         }
+
+        // Updating ships with inputs from the game
+        public void update(int entityId, int x, int y, int arg1, int arg2, int arg3, int arg4)
+        {
+            if (this.id == entityId)
+            {
+                this.position = new Coord(x, y);
+                this.orientation = arg1;
+                this.speed = arg2;
+                this.health = arg3;
+                this.owner = arg4;
+            }
+        }
     }
 
     private static class Player {
@@ -634,6 +719,35 @@ class Referee extends MultiReferee {
         }
     }
 
+    protected void displayEntities()
+    {
+        System.err.println("Player");
+        for (Player player : this.players)
+        {
+            System.err.println(player.toViewString());
+        }
+        System.err.println("Ships");
+        for (Ship ship : this.ships)
+        {
+            System.err.println(ship.toViewString());
+        }
+        System.err.println("Barrels");
+        for (RumBarrel barrel : this.barrels)
+        {
+            System.err.println(barrel.toViewString());
+        }
+        System.err.println("Cannonball");
+        for (Cannonball cannonball : cannonballs)
+        {
+            System.err.println(cannonball.toViewString());
+        }
+        System.err.println("Mines");
+        for (Mine mine : this.mines)
+        {
+            System.err.println(mine.toViewString());
+        }
+    }
+
     private long seed;
     private List<Cannonball> cannonballs;
     private List<Mine> mines;
@@ -649,14 +763,49 @@ class Referee extends MultiReferee {
     private Random random;
 
     public Referee(InputStream is, PrintStream out, PrintStream err) throws IOException {
-        super(is, out, err);
+        // super(is, out, err);
     }
 
     public static void main(String... args) throws IOException {
         new Referee(System.in, System.out, System.err);
     }
 
-    @Override
+    protected void initEmptyReferee(int playerCount, Properties prop) throws InvalidFormatException
+    {
+        seed = Long.valueOf(prop.getProperty("seed", String.valueOf(new Random(System.currentTimeMillis()).nextLong())));
+        random = new Random(this.seed);
+
+        shipsPerPlayer = clamp(
+                Integer.valueOf(prop.getProperty("shipsPerPlayer", String.valueOf(random.nextInt(1 + MAX_SHIPS - MIN_SHIPS) + MIN_SHIPS))), MIN_SHIPS,
+                MAX_SHIPS);
+
+        if (MAX_MINES > MIN_MINES) {
+            mineCount = clamp(Integer.valueOf(prop.getProperty("mineCount", String.valueOf(random.nextInt(MAX_MINES - MIN_MINES) + MIN_MINES))),
+                    MIN_MINES, MAX_MINES);
+        } else {
+            mineCount = MIN_MINES;
+        }
+
+        barrelCount = clamp(
+                Integer.valueOf(prop.getProperty("barrelCount", String.valueOf(random.nextInt(MAX_RUM_BARRELS - MIN_RUM_BARRELS) + MIN_RUM_BARRELS))),
+                MIN_RUM_BARRELS, MAX_RUM_BARRELS);
+
+        cannonballs = new ArrayList<>();
+        cannonBallExplosions = new ArrayList<>();
+        damage = new ArrayList<>();
+        shipLosts = new ArrayList<>();
+
+        // Generate Players
+        this.players = new ArrayList<Player>(playerCount);
+        for (int i = 0; i < playerCount; i++) {
+            this.players.add(new Player(i));
+        }
+
+        this.ships = new ArrayList<>();
+        this.mines = new ArrayList<>();
+        this.barrels = new ArrayList<>();
+    }
+
     protected void initReferee(int playerCount, Properties prop) throws InvalidFormatException {
         seed = Long.valueOf(prop.getProperty("seed", String.valueOf(new Random(System.currentTimeMillis()).nextLong())));
         random = new Random(this.seed);
@@ -760,7 +909,102 @@ class Referee extends MultiReferee {
 
     }
 
-    @Override
+    protected void updateEntity(int entityId, String entityType, int x, int y, 
+    int arg1, int arg2, int arg3, int arg4) throws InvalidFormatException 
+    {
+        if (entityType.toUpperCase().equals("SHIP"))
+        {
+            // Players must be added to the list
+            // currentBoard.players.get(arg4).add(ship);
+            boolean foundElement = false;
+            for (Ship ship : this.ships)
+            {
+                if (ship.id == entityId)
+                {
+                    ship.update(entityId, x, y, arg1, arg2, arg3, arg4);
+                    foundElement = true;
+                    break;
+                }
+            }
+            if (foundElement == false)
+            {
+                Ship ship = new Ship(x, y, arg1, arg4);
+                this.ships.add(ship);
+                if (this.players.get(arg4) == null)
+                {
+                    this.players.add(new Player(arg4));
+                }
+                this.players.get(arg4).ships.add(ship);
+                this.players.get(arg4).shipsAlive.add(ship);
+            }
+        }
+        else if (entityType.toUpperCase().equals("BARREL"))
+        {
+            // Players must be added to the list
+            // currentBoard.players.get(arg4).add(ship);
+            boolean foundElement = false;
+            for (RumBarrel barrel : this.barrels)
+            {
+                if (barrel.id == entityId)
+                {
+                    barrel.update(entityId, x, y, arg1);
+                    foundElement = true;
+                    break;
+                }
+            }
+            if (foundElement == false)
+            {
+                RumBarrel barrel = new RumBarrel(x, y, arg1);
+                this.barrels.add(barrel);
+            }
+        }
+        else if (entityType.toUpperCase().equals("CANNONBALL"))
+        {
+            boolean foundElement = false;
+            for (Cannonball cannonball : this.cannonballs)
+            {
+                if (cannonball.ownerEntityId == arg1)
+                {
+                    cannonball.update(arg2);
+                    foundElement = true;
+                    break;
+                }
+            }
+            if (foundElement == false)
+            {
+                for (Ship srcShip : this.ships)
+                {
+                    if (srcShip.id == arg1)
+                    {
+                        int srcX = srcShip.position.x;
+                        int srcY = srcShip.position.y;
+                        Cannonball cannonball  = new Cannonball(x, y, arg1, srcX, srcY, arg2);
+                        this.cannonballs.add(cannonball);
+                        break;
+                    }
+                }
+            }
+        }
+        else if (entityType.toUpperCase().equals("MINE"))
+        {
+            boolean foundElement = false;
+            for (Mine mine : this.mines)
+            {
+                if (mine.position.x == x && mine.position.y == y)
+                {
+                    foundElement = true;
+                    break;
+                }
+            }
+            if (foundElement == false)
+            {
+                Mine m = new Mine(x, y);
+                this.mines.add(m);
+            }
+        }
+
+    }
+
     protected Properties getConfiguration() {
         Properties prop = new Properties();
         prop.setProperty("seed", String.valueOf(seed));
@@ -770,7 +1014,6 @@ class Referee extends MultiReferee {
         return prop;
     }
 
-    @Override
     protected void prepare(int round) {
         for (Player player : players) {
             for (Ship ship : player.ships) {
@@ -783,12 +1026,10 @@ class Referee extends MultiReferee {
         shipLosts.clear();
     }
 
-    @Override
     protected int getExpectedOutputLineCountForPlayer(int playerIdx) {
         return this.players.get(playerIdx).shipsAlive.size();
     }
 
-    @Override
     protected void handlePlayerOutput(int frame, int round, int playerIdx, String[] outputs)
             throws WinException, LostException, InvalidInputException {
         Player player = this.players.get(playerIdx);
@@ -1132,7 +1373,6 @@ class Referee extends MultiReferee {
         }
     }
 
-    @Override
     protected void updateGame(int round) throws GameOverException {
         moveCannonballs();
         decrementRum();
@@ -1166,17 +1406,47 @@ class Referee extends MultiReferee {
         }
     }
 
-    @Override
+    protected void makeDecision(int idPlayer)
+    {
+        for (Player player : this.players)
+        {
+            if (idPlayer != player.id) continue;
+            for (Ship ship : player.ships)
+            {
+                if (this.barrels.size() != 0)
+                {
+                    ship.target = ship.closestBarrel(this.barrels).position;
+                }
+                else if (ship.position.x == ship.target.x && ship.position.y == ship.target.y)
+                {
+                    ship.target = new Coord(random.nextInt(MAP_WIDTH),random.nextInt(MAP_HEIGHT));
+                }
+/*
+                Ship futurShip = ship;
+                futurShip.moveTo(ship.target.x, ship.target.y);
+                System.err.println("Ship");
+                System.err.println(ship.toViewString());
+                System.err.println("futurShip");
+                System.err.println(futurShip.toViewString()); 
+                if (futurShip.health < ship.health)
+                {
+                    System.err.println("WARNING COLLISION");
+                    System.out.println("WAIT");
+                }
+                */
+                System.out.println("MOVE " + ship.target.x + " " + ship.target.y);
+            }
+        }
+    }
+
     protected void populateMessages(Properties p) {
         p.put("endReached", "End reached");
     }
 
-    @Override
     protected String[] getInitInputForPlayer(int playerIdx) {
         return new String[0];
     }
 
-    @Override
     protected String[] getInputForPlayer(int round, int playerIdx) {
         List<String> data = new ArrayList<>();
 
@@ -1220,7 +1490,6 @@ class Referee extends MultiReferee {
         return data.toArray(new String[data.size()]);
     }
 
-    @Override
     protected String[] getInitDataForView() {
         List<String> data = new ArrayList<>();
 
@@ -1231,7 +1500,6 @@ class Referee extends MultiReferee {
         return data.toArray(new String[data.size()]);
     }
 
-    @Override
     protected String[] getFrameDataForView(int round, int frame, boolean keyFrame) {
         List<String> data = new ArrayList<>();
 
@@ -1258,63 +1526,96 @@ class Referee extends MultiReferee {
         return data.toArray(new String[data.size()]);
     }
 
-    @Override
     protected String getGameName() {
         return "CodersOfTheCaribbean";
     }
 
-    @Override
     protected String getHeadlineAtGameStartForConsole() {
         return null;
     }
 
-    @Override
     protected int getMinimumPlayerCount() {
         return 2;
     }
 
-    @Override
     protected boolean showTooltips() {
         return true;
     }
 
-    @Override
     protected String[] getPlayerActions(int playerIdx, int round) {
         return new String[0];
     }
 
-    @Override
     protected boolean isPlayerDead(int playerIdx) {
         return false;
     }
 
-    @Override
     protected String getDeathReason(int playerIdx) {
         return "$" + playerIdx + ": Eliminated!";
     }
-
-    @Override
+    
     protected int getScore(int playerIdx) {
         return players.get(playerIdx).getScore();
     }
 
-    @Override
     protected String[] getGameSummary(int round) {
         return new String[0];
     }
 
-    @Override
     protected void setPlayerTimeout(int frame, int round, int playerIdx) {
         players.get(playerIdx).setDead();
     }
 
-    @Override
     protected int getMaxRoundCount(int playerCount) {
         return 200;
     }
 
-    @Override
     protected int getMillisTimeForRound() {
         return 50;
+    }
+}
+
+class Player {
+
+    public static void main(String args[]) {
+        Scanner in = new Scanner(System.in);
+        // Initialization of our simulation
+        InputStream is = System.in;
+        PrintStream out= System.out;
+        PrintStream err= System.err;
+       	try {
+			Referee currentBoard = new Referee(is, out, err);
+			// Initialize a random game
+            Properties prop = currentBoard.getConfiguration();
+            currentBoard.initEmptyReferee(2, prop);
+
+            // game loop
+            while (true) {
+                // Update new inputs
+                int myShipCount = in.nextInt(); // the number of remaining ships
+                int entityCount = in.nextInt(); // the number of entities (e.g. ships, mines or cannonballs)
+                for (int i = 0; i < entityCount; i++) {
+                    int entityId = in.nextInt();
+                    String entityType = in.next();
+                    int x = in.nextInt();
+                    int y = in.nextInt();
+                    int arg1 = in.nextInt();
+                    int arg2 = in.nextInt();
+                    int arg3 = in.nextInt();
+                    int arg4 = in.nextInt();
+
+                    currentBoard.updateEntity(entityId, entityType, x, y, arg1, arg2, arg3, arg4);
+                }
+                //currentBoard.displayEntities();
+
+                // my decision
+                currentBoard.makeDecision(1);
+                int round = 1;
+                currentBoard.updateGame(round);
+            }
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
     }
 }
