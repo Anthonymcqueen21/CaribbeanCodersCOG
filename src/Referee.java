@@ -7,17 +7,7 @@ import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Map.Entry;
-import java.util.Properties;
-import java.util.Random;
-import java.util.Scanner;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -1421,19 +1411,6 @@ class Referee {
                 {
                     ship.target = new Coord(random.nextInt(MAP_WIDTH),random.nextInt(MAP_HEIGHT));
                 }
-/*
-                Ship futurShip = ship;
-                futurShip.moveTo(ship.target.x, ship.target.y);
-                System.err.println("Ship");
-                System.err.println(ship.toViewString());
-                System.err.println("futurShip");
-                System.err.println(futurShip.toViewString()); 
-                if (futurShip.health < ship.health)
-                {
-                    System.err.println("WARNING COLLISION");
-                    System.out.println("WAIT");
-                }
-                */
                 System.out.println("MOVE " + ship.target.x + " " + ship.target.y);
             }
         }
@@ -1557,7 +1534,6 @@ class Referee {
     protected int getScore(int playerIdx) {
         return players.get(playerIdx).getScore();
     }
-
     protected String[] getGameSummary(int round) {
         return new String[0];
     }
