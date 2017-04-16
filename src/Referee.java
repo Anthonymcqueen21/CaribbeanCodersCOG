@@ -20,6 +20,9 @@ class LostException extends Exception {
 }
 
 class InvalidInputException extends Exception {
+    public InvalidInputException(String message) {
+        super(message);
+    }
     public InvalidInputException(String message, String line) {
         super(message + line);
     }
@@ -238,6 +241,7 @@ class Referee {
     }
 
     public static abstract class Entity {
+    	private static List<Integer> UNIQUE_ENTITY_ID_LIST = new ArrayList<Integer>();
         private static int UNIQUE_ENTITY_ID = 0;
 
         protected final int id;
@@ -245,7 +249,21 @@ class Referee {
         protected Coord position;
 
         public Entity(EntityType type, int x, int y) {
-            this.id = UNIQUE_ENTITY_ID++;
+        	do
+        	{
+            	UNIQUE_ENTITY_ID++;	
+        	} while (UNIQUE_ENTITY_ID_LIST.contains(UNIQUE_ENTITY_ID_LIST));
+            this.id = UNIQUE_ENTITY_ID;
+            UNIQUE_ENTITY_ID = 0;
+            UNIQUE_ENTITY_ID_LIST.add(UNIQUE_ENTITY_ID);
+            this.type = type;
+            this.position = new Coord(x, y);
+        }
+        
+        public Entity(int entityId, EntityType type, int x, int y) throws InvalidInputException {
+            if (UNIQUE_ENTITY_ID_LIST.contains(entityId)) throw new InvalidInputException("entityId has to be unique");
+        	this.id = entityId;
+        	UNIQUE_ENTITY_ID_LIST.add(entityId);
             this.type = type;
             this.position = new Coord(x, y);
         }
@@ -257,9 +275,18 @@ class Referee {
         protected String toPlayerString(int arg1, int arg2, int arg3, int arg4) {
             return join(id, type.name(), position.x, position.y, arg1, arg2, arg3, arg4);
         }
+        
+        protected void removeUniqueId()
+        {
+        	UNIQUE_ENTITY_ID_LIST.remove(this.id);
+        }
     }
 
     public static class Mine extends Entity {
+        public Mine(int entityId, int x, int y) throws InvalidInputException {
+            super(entityId, EntityType.MINE, x, y);
+        }
+        
         public Mine(int x, int y) {
             super(EntityType.MINE, x, y);
         }
@@ -317,6 +344,14 @@ class Referee {
         final int initialRemainingTurns;
         int remainingTurns;
 
+        public Cannonball(int entityId, int row, int col, int ownerEntityId, int srcX, int srcY, int remainingTurns) throws InvalidInputException {
+            super(entityId, EntityType.CANNONBALL, row, col);
+            this.ownerEntityId = ownerEntityId;
+            this.srcX = srcX;
+            this.srcY = srcY;
+            this.initialRemainingTurns = this.remainingTurns = remainingTurns;
+        }
+        
         public Cannonball(int row, int col, int ownerEntityId, int srcX, int srcY, int remainingTurns) {
             super(EntityType.CANNONBALL, row, col);
             this.ownerEntityId = ownerEntityId;
@@ -342,6 +377,11 @@ class Referee {
     public static class RumBarrel extends Entity {
         private int health;
 
+        public RumBarrel(int entityId, int x, int y, int health) throws InvalidInputException {
+            super(entityId, EntityType.BARREL, x, y);
+            this.health = health;
+        }
+        
         public RumBarrel(int x, int y, int health) {
             super(EntityType.BARREL, x, y);
             this.health = health;
@@ -400,6 +440,14 @@ class Referee {
         public Coord newBowCoordinate;
         public Coord newSternCoordinate;
 
+        public Ship(int entityId, int x, int y, int orientation, int owner) throws InvalidInputException {
+            super(entityId, EntityType.SHIP, x, y);
+            this.orientation = orientation;
+            this.speed = 0;
+            this.health = INITIAL_SHIP_HEALTH;
+            this.owner = owner;
+        }
+        
         public Ship(int x, int y, int orientation, int owner) {
             super(EntityType.SHIP, x, y);
             this.orientation = orientation;
@@ -891,7 +939,7 @@ class Referee {
             }
             
         }
-
+/*
         System.err.println("Barrels");
         for (RumBarrel barrel : this.barrels)
         {
@@ -907,6 +955,7 @@ class Referee {
         {
             System.err.println(mine.toViewString());
         }
+*/
     }
 
     private long seed;
@@ -1173,12 +1222,17 @@ class Referee {
             }
             if (foundElement == false)
             {
-                Ship ship = new Ship(x, y, arg1, arg4);
-                this.ships.add(ship);
-                this.players.get(arg4).ships.add(ship);
-                this.players.get(arg4).shipsAlive.add(ship);
-                if (arg4 == 1) this.players.get(0).opponentShipsAlive.add(ship);
-                else if (arg4 == 0) this.players.get(1).opponentShipsAlive.add(ship);
+				try {
+					Ship ship = new Ship(entityId, x, y, arg1, arg4);
+	                this.ships.add(ship);
+	                this.players.get(arg4).ships.add(ship);
+	                this.players.get(arg4).shipsAlive.add(ship);
+	                if (arg4 == 1) this.players.get(0).opponentShipsAlive.add(ship);
+	                else if (arg4 == 0) this.players.get(1).opponentShipsAlive.add(ship);
+				} catch (InvalidInputException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
             }
         }
         else if (entityType.toUpperCase().equals("BARREL"))
@@ -1197,8 +1251,13 @@ class Referee {
             }
             if (foundElement == false)
             {
-                RumBarrel barrel = new RumBarrel(x, y, arg1);
-                this.barrels.add(barrel);
+				try {
+					RumBarrel barrel = new RumBarrel(entityId, x, y, arg1);
+	                this.barrels.add(barrel);
+				} catch (InvalidInputException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
             }
         }
         else if (entityType.toUpperCase().equals("CANNONBALL"))
@@ -1221,8 +1280,14 @@ class Referee {
                     {
                         int srcX = srcShip.position.x;
                         int srcY = srcShip.position.y;
-                        Cannonball cannonball  = new Cannonball(x, y, arg1, srcX, srcY, arg2);
-                        this.cannonballs.add(cannonball);
+                        Cannonball cannonball;
+						try {
+							cannonball = new Cannonball(entityId, x, y, arg1, srcX, srcY, arg2);
+	                        this.cannonballs.add(cannonball);
+						} catch (InvalidInputException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
                         break;
                     }
                 }
@@ -1241,8 +1306,13 @@ class Referee {
             }
             if (foundElement == false)
             {
-                Mine m = new Mine(x, y);
-                this.mines.add(m);
+				try {
+					Mine m = new Mine(entityId, x, y);
+	                this.mines.add(m);
+				} catch (InvalidInputException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
             }
         }
 
@@ -1266,7 +1336,11 @@ class Referee {
         }
         cannonBallExplosions.clear();
         damage.clear();
+        shipLosts.forEach(ship -> {
+        	ship.removeUniqueId();
+        });
         shipLosts.clear();
+        
     }
 
     protected int getExpectedOutputLineCountForPlayer(int playerIdx) {
@@ -1643,6 +1717,7 @@ class Referee {
                 it.remove();
             }
         }
+    	this.displayEntities();
         if (gameIsOver()) {
             throw new GameOverException("endReached");
         }
@@ -1856,13 +1931,19 @@ class Player {
             Properties prop = currentBoard.getConfiguration();
             currentBoard.initEmptyReferee(2, prop);
 
-            HashSet<String> previousEntities = new HashSet();
             // game loop
             while (true) {
+                // Simulate next turn for knowing if some entities need to be removed
+                try {
+                	currentBoard.prepare(1);
+					currentBoard.updateGame(1);
+				} catch (GameOverException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
                 // Update new inputs
                 int myShipCount = in.nextInt(); // the number of remaining ships
                 int entityCount = in.nextInt(); // the number of entities (e.g. ships, mines or cannonballs)
-                HashSet<String> currentEntities = new HashSet();
                 for (int i = 0; i < entityCount; i++) {
                     int entityId = in.nextInt();
                     String entityType = in.next();
@@ -1875,29 +1956,7 @@ class Player {
                     
                     // Create + Update current entity
                     currentBoard.updateEntity(entityId, entityType, x, y, arg1, arg2, arg3, arg4);
-                    
-                    // Checking if everyone entityId is still there
-                    currentEntities.add(entityId + ";" + entityType);
                 }
-                
-                // Remove element that went missing
-                Iterator<String> iterator = previousEntities.iterator();
-                while (iterator.hasNext())
-                {
-                	String previousEntity = iterator.next();
-                	if (!currentEntities.contains(previousEntity))
-                	{
-                		System.err.println("Go erase: " + previousEntity);
-                		int previousEntityId = Integer.parseInt(previousEntity.split(";")[0]);
-                		currentBoard.removeEntity(previousEntityId, previousEntity.split(";")[1]);
-                		//previousEntities.remove(previousEntity);
-                		iterator.remove();
-                	}
-                }
-                
-                //currentBoard.displayEntities();
-                
-                previousEntities.addAll(currentEntities);
                 
                 // my decision
                 currentBoard.makeDecision(1);
