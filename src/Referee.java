@@ -13,8 +13,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import javax.net.ssl.ExtendedSSLSession;
-
 class LostException extends Exception {
     public LostException(String message) {
         super(message);
@@ -676,11 +674,13 @@ class Referee {
         private int id;
         private List<Ship> ships;
         private List<Ship> shipsAlive;
+        private List<Ship> opponentShipsAlive;
 
         public Player(int id) {
             this.id = id;
             this.ships = new ArrayList<>();
             this.shipsAlive = new ArrayList<>();
+            this.opponentShipsAlive = new ArrayList<>();
         }
 
         public void setDead() {
@@ -709,18 +709,189 @@ class Referee {
         }
     }
 
+    public static class Solution
+    {
+    	// Key: ship -> Value: Tree of possible move
+        Map<Ship, List<String[]>> solution;
+        public Solution()
+        {
+        	this.solution = new HashMap<Ship, List<String[]>>();
+        }
+        
+        public void populate(int width, int depth, List<Ship> shipAlives, List<Coord> targets, Random rand) throws InvalidInputException
+        {
+        	for (Ship shipAlive : shipAlives)
+        	{
+        		List<String[]> tree = new ArrayList<String[]>();;
+            	for (int iWidth = 0; iWidth < width; iWidth++)
+            	{
+            		String[] moves = new String[depth];
+            		for (int iDepth = 0; iDepth < depth; iDepth++)
+            		{
+            			String move = "";
+            			do
+            			{
+            				try
+            				{
+                				move = randomizeMove(rand, shipAlive, targets);
+            				}
+            				catch (InvalidInputException e)
+            				{
+            					e.printStackTrace();
+            				}
+            			} while (move == "");
+            			moves[iDepth] = move;
+            		}
+            		tree.add(moves);
+            	}
+                if (this.solution.containsKey(shipAlive)) {
+                    this.solution.get(shipAlive).addAll(tree);
+                } else {
+                    this.solution.put(shipAlive, new ArrayList<String[]>());
+                    this.solution.get(shipAlive).addAll(tree);
+                }
+        	}
+        }
+        
+        public String randomizeMove(Random rand, Ship ship, List<Coord> targets) throws InvalidInputException
+        {
+        	String move = null;
+            switch(rand.nextInt(7))
+            {
+                case 0: 
+                    move = "SLOWER";
+                    break;
+                case 1:
+                    move = "FASTER";
+                    break;
+                case 2:
+                    move = "WAIT";
+                    break;
+                case 3:
+                    move = "PORT";
+                    break;
+                case 4:
+                    move = "STARBOARD";
+                    break;
+                case 5:
+                	if (targets.size() == 0)
+                	{
+                		throw new InvalidInputException("No target worth to fire", move);
+                	}
+                	int minDistance = 99;
+                	Coord minDistanceFireTarget = null;
+					for (Iterator<Coord> iterator = targets.iterator(); iterator.hasNext();) {
+						Coord target = iterator.next();
+						int distance = ship.bow().distanceTo(target);
+						if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0 && distance < minDistance)
+						{
+						    minDistance = distance;
+						    minDistanceFireTarget = target;
+						}
+					}
+                	if (minDistanceFireTarget == null)
+                	{
+                		throw new InvalidInputException("No target in range to fire", move);
+                	}
+                    move = "FIRE " + minDistanceFireTarget.x + " " + minDistanceFireTarget.y;
+                    break;
+                case 6:
+                    move = "MINE";
+                    break;
+            }
+            return move;
+        }
+        
+        public float score(Referee board, int playerIdx, int round, String[] moves1)
+        {
+            // Saving the state of the game
+            board.save();
+
+            // Playing moves
+            for (int i = 0; i < moves1.length; ++i)
+            {
+                try {
+					board.handlePlayerOutput(round, round, playerIdx, moves1);
+				} catch (WinException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (LostException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (InvalidInputException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+                
+                try {
+					board.updateGame(1);
+				} catch (GameOverException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+            }
+            // Compute score
+            float result = board.getEvaluation(1, 0);
+
+            // Loading the previous state of the game
+            board.load();
+
+            return result;
+        }
+        
+        public float score(Referee board, int playerIdx, int round, String[] moves1, String[] moves2, String[] moves3)
+        {
+            // Saving the state of the game
+            board.save();
+
+            // Playing moves
+            for (int i = 0; i < Math.min(Math.min(moves1.length, moves2.length), moves3.length); ++i)
+            {
+                try {
+					board.handlePlayerOutput(round, round, playerIdx, moves1);
+	                board.handlePlayerOutput(round, round, playerIdx, moves2);
+	                board.handlePlayerOutput(round, round, playerIdx, moves3);
+				} catch (WinException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (LostException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (InvalidInputException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+                
+                try {
+					board.updateGame(1);
+				} catch (GameOverException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+            }
+            // Compute score
+            float result = board.getEvaluation(1, 0);
+
+            // Loading the previous state of the game
+            board.load();
+
+            return result;
+        }
+    }
+
     protected void displayEntities()
     {
-        System.err.println("Player");
+        System.err.println("ShipsAlive");
         for (Player player : this.players)
         {
-            System.err.println(player.toViewString());
+        	System.err.println("Player: " + player.id);
+            for (Ship shipAlive : player.shipsAlive)
+            {
+                System.err.println(shipAlive.toViewString());
+            }
+            
         }
-        System.err.println("Ships");
-        for (Ship ship : this.ships)
-        {
-            System.err.println(ship.toViewString());
-        }
+
         System.err.println("Barrels");
         for (RumBarrel barrel : this.barrels)
         {
@@ -751,6 +922,55 @@ class Referee {
     private int mineCount;
     private int barrelCount;
     private Random random;
+
+    // variables used for saving/loading back previous stats of the game
+    private long saveSeed;
+    private List<Cannonball> saveCannonballs;
+    private List<Mine> saveMines;
+    private List<RumBarrel> saveBarrels;
+    private List<Player> savePlayers;
+    private List<Ship> saveShips;
+    private List<Damage> saveDamage;
+    private List<Ship> saveShipLosts;
+    private List<Coord> saveCannonBallExplosions;
+    private int saveShipsPerPlayer;
+    private int saveMineCount;
+    private int saveBarrelCount;
+    private Random saveRandom;
+
+    public void save()
+    {
+        this.saveSeed = this.seed;
+        this.saveCannonballs = this.cannonballs;
+        this.saveMines = this.mines;
+        this.saveBarrels = this.barrels;
+        this.savePlayers = this.players;
+        this.saveShips = this.ships;
+        this.saveDamage = this.damage;
+        this.saveShipLosts = this.shipLosts;
+        this.saveCannonBallExplosions = this.cannonBallExplosions;
+        this.saveShipsPerPlayer = this.shipsPerPlayer;
+        this.saveMineCount = this.mineCount;
+        this.saveBarrelCount = this.barrelCount;
+        this.saveRandom = this.random;
+    }
+
+    public void load()
+    {
+        this.seed = this.saveSeed;
+        this.cannonballs = this.saveCannonballs;
+        this.mines = this.saveMines;
+        this.barrels = this.saveBarrels;
+        this.players = this.savePlayers;
+        this.ships = this.saveShips;
+        this.damage = this.saveDamage;
+        this.shipLosts = this.saveShipLosts;
+        this.cannonBallExplosions = this.saveCannonBallExplosions;
+        this.shipsPerPlayer = this.saveShipsPerPlayer;
+        this.mineCount = this.saveMineCount;
+        this.barrelCount = this.saveBarrelCount;
+        this.random = this.saveRandom;
+    }
 
     public Referee(InputStream is, PrintStream out, PrintStream err) throws IOException {
         // super(is, out, err);
@@ -841,6 +1061,8 @@ class Referee {
             this.players.get(1).ships.add(ship1);
             this.players.get(0).shipsAlive.add(ship0);
             this.players.get(1).shipsAlive.add(ship1);
+            this.players.get(0).opponentShipsAlive.add(ship1);
+            this.players.get(1).opponentShipsAlive.add(ship0);
         }
 
         this.ships = players.stream().map(p -> p.ships).flatMap(List::stream).collect(Collectors.toList());
@@ -896,9 +1118,42 @@ class Referee {
                 barrels.add(m);
             }
         }
-
     }
 
+    protected void removeEntity(int entityId, String entityType)
+    {
+
+        if (entityType.toUpperCase().equals("SHIP"))
+        {
+        	for (Player player : this.players)
+        	{
+        		player.shipsAlive.removeIf(ship -> {
+            		return ship.id == entityId;
+            	});
+            	player.opponentShipsAlive.removeIf(ship -> {
+            		return ship.id == entityId;
+            	});
+        	}
+        }
+        else if (entityType.toUpperCase().equals("BARREL"))
+        {
+        	this.barrels.removeIf(barrel -> {
+        		return barrel.id == entityId;
+        	});
+        }
+        else if (entityType.toUpperCase().equals("CANNONBALL"))
+        {
+           	this.cannonballs.removeIf(cannonball -> {
+        		return cannonball.id == entityId;
+        	});
+        }
+        else if (entityType.toUpperCase().equals("MINE"))
+        {
+        	this.mines.removeIf(mine -> {
+        		return mine.id == entityId;
+        	});
+        }
+    }
     protected void updateEntity(int entityId, String entityType, int x, int y, 
     int arg1, int arg2, int arg3, int arg4) throws InvalidFormatException 
     {
@@ -920,12 +1175,10 @@ class Referee {
             {
                 Ship ship = new Ship(x, y, arg1, arg4);
                 this.ships.add(ship);
-                if (this.players.get(arg4) == null)
-                {
-                    this.players.add(new Player(arg4));
-                }
                 this.players.get(arg4).ships.add(ship);
                 this.players.get(arg4).shipsAlive.add(ship);
+                if (arg4 == 1) this.players.get(0).opponentShipsAlive.add(ship);
+                else if (arg4 == 0) this.players.get(1).opponentShipsAlive.add(ship);
             }
         }
         else if (entityType.toUpperCase().equals("BARREL"))
@@ -1390,7 +1643,6 @@ class Referee {
                 it.remove();
             }
         }
-
         if (gameIsOver()) {
             throw new GameOverException("endReached");
         }
@@ -1401,18 +1653,53 @@ class Referee {
         for (Player player : this.players)
         {
             if (idPlayer != player.id) continue;
+        	String move = "";
             for (Ship ship : player.ships)
             {
-                if (this.barrels.size() != 0)
-                {
-                    ship.target = ship.closestBarrel(this.barrels).position;
-                }
-                else if (ship.position.x == ship.target.x && ship.position.y == ship.target.y)
-                {
-                    ship.target = new Coord(random.nextInt(MAP_WIDTH),random.nextInt(MAP_HEIGHT));
-                }
-                System.out.println("MOVE " + ship.target.x + " " + ship.target.y);
+            	if (ship.health < 80) // Go restore health
+            	{
+                    if (this.barrels.size() != 0)
+                    {
+                        ship.target = ship.closestBarrel(this.barrels).position;
+                    }
+                    else if (ship.position.x == ship.target.x && ship.position.y == ship.target.y)
+                    {
+                        ship.target = new Coord(random.nextInt(MAP_WIDTH),random.nextInt(MAP_HEIGHT));
+                    }
+                    move = "MOVE " + ship.target.x + " " + ship.target.y;
+            	}
+            	else // Go attack opponents
+            	{
+                	int minDistance = 99;
+                	Coord closestOpponentShip = null;
+                	Coord closestFireTarget = null;
+                	for (Ship opponentShip : player.opponentShipsAlive)
+                	{
+						Coord target = opponentShip.position;
+						int distance = ship.bow().distanceTo(target);
+						if (distance < minDistance) 
+						{
+							minDistance = distance;
+							closestOpponentShip = opponentShip.position;
+						}
+						if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0 && distance <= minDistance)
+						{
+							closestFireTarget = target;
+						}
+					}
+                	if (closestFireTarget != null)
+                	{
+                		move = "FIRE " + closestFireTarget.x + " " + closestFireTarget.y;
+                	}
+                	else if (closestOpponentShip != null)
+                	{
+                		move = "MOVE " + closestOpponentShip.x + " " + closestOpponentShip.y;
+                	}
+
+            	}
             }
+            if (move == "") System.out.println("WAIT");
+            else System.out.println(move);
         }
     }
 
@@ -1534,6 +1821,10 @@ class Referee {
     protected int getScore(int playerIdx) {
         return players.get(playerIdx).getScore();
     }
+    
+    protected int getEvaluation(int playerIdx, int opponentPlayerIdx) {
+    	return players.get(playerIdx).getScore() - players.get(opponentPlayerIdx).getScore();
+    }
     protected String[] getGameSummary(int round) {
         return new String[0];
     }
@@ -1565,11 +1856,13 @@ class Player {
             Properties prop = currentBoard.getConfiguration();
             currentBoard.initEmptyReferee(2, prop);
 
+            HashSet<String> previousEntities = new HashSet();
             // game loop
             while (true) {
                 // Update new inputs
                 int myShipCount = in.nextInt(); // the number of remaining ships
                 int entityCount = in.nextInt(); // the number of entities (e.g. ships, mines or cannonballs)
+                HashSet<String> currentEntities = new HashSet();
                 for (int i = 0; i < entityCount; i++) {
                     int entityId = in.nextInt();
                     String entityType = in.next();
@@ -1579,19 +1872,45 @@ class Player {
                     int arg2 = in.nextInt();
                     int arg3 = in.nextInt();
                     int arg4 = in.nextInt();
-
+                    
+                    // Create + Update current entity
                     currentBoard.updateEntity(entityId, entityType, x, y, arg1, arg2, arg3, arg4);
+                    
+                    // Checking if everyone entityId is still there
+                    currentEntities.add(entityId + ";" + entityType);
                 }
+                
+                // Remove element that went missing
+                Iterator<String> iterator = previousEntities.iterator();
+                while (iterator.hasNext())
+                {
+                	String previousEntity = iterator.next();
+                	if (!currentEntities.contains(previousEntity))
+                	{
+                		System.err.println("Go erase: " + previousEntity);
+                		int previousEntityId = Integer.parseInt(previousEntity.split(";")[0]);
+                		currentBoard.removeEntity(previousEntityId, previousEntity.split(";")[1]);
+                		//previousEntities.remove(previousEntity);
+                		iterator.remove();
+                	}
+                }
+                
                 //currentBoard.displayEntities();
-
+                
+                previousEntities.addAll(currentEntities);
+                
                 // my decision
                 currentBoard.makeDecision(1);
-                int round = 1;
-                currentBoard.updateGame(round);
             }
-		} catch (Exception e) {
+		} 
+       	catch (IOException e)
+       	{
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+       	catch (InvalidFormatException  e)
+       	{
+       		e.printStackTrace();
+       	}
     }
 }
