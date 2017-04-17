@@ -397,6 +397,7 @@ class Referee {
         int initialHealth;
         int owner;
         String message;
+		String lastCommand;
         Action action;
         int mineCooldown;
         int cannonCooldown;
@@ -413,6 +414,7 @@ class Referee {
             this.speed = 0;
             this.health = INITIAL_SHIP_HEALTH;
             this.owner = owner;
+			this.lastCommand = "";
         }
         
         public Ship(int x, int y, int orientation, int owner) {
@@ -421,6 +423,7 @@ class Referee {
             this.speed = 0;
             this.health = INITIAL_SHIP_HEALTH;
             this.owner = owner;
+			this.lastCommand = "";
         }
         
         public void update(int entityId, int x, int y, int orientation, int speed, int health, int owner)
@@ -919,7 +922,7 @@ class Referee {
         for (Player player : players) {
             for (Ship ship : player.ships) {
                 ship.action = null;
-                ship.message = null;
+				ship.message = null;
             }
         }
         cannonBallExplosions.clear();
@@ -1229,7 +1232,6 @@ class Referee {
                     it.remove();
                     break;
                 } else if (position.equals(ship.position)) {
-					System.err.println("YO");
                     damage.add(new Damage(position, HIGH_DAMAGE, true));
                     ship.damage(HIGH_DAMAGE);
                     it.remove();
@@ -1585,39 +1587,43 @@ class Referee {
             if (idPlayer != player.id) continue;
             for (Ship ship : player.ships)
             {
-            	if (ship.health < 80) // Go restore health
-            	{
-                    if (barrels.size() != 0)
-                    {
-                        ship.target = ship.closestBarrel(barrels).position;
-                    }
-                    else if (ship.position.x == ship.target.x && ship.position.y == ship.target.y)
-                    {
-                        ship.target = new Coord(random.nextInt(MAP_WIDTH),random.nextInt(MAP_HEIGHT));
-                    }
-                    ship.message =  "MOVE " + ship.target.x + " " + ship.target.y;
-            	}
-            	else // Go attack opponents
-            	{
-            		List<Coord> fireTargets = player.computeFireTargets(ships, mines, barrels);
-            		boolean fire = false;
-                	for (Coord fireTarget : fireTargets)
-                	{
-						int distance = ship.bow().distanceTo(fireTarget);
-						
-						if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0)
-						{
-	                		ship.message = "FIRE " + fireTarget.x + " " + fireTarget.y;
-	                		fire = true;
-						}
-                	}
-					if (fire == false && fireTargets.size() != 0)
+				String command = "";
+				// Interresting target to fire
+				List<Coord> fireTargets = player.computeFireTargets(ships, mines, barrels);
+				
+				if (barrels.size() != 0) // Moving in order to restore health
+				{
+					ship.target = ship.closestBarrel(barrels).position;
+					command =  "MOVE " + ship.target.x + " " + ship.target.y;
+					
+					if (ship.lastCommand.equals(command) && ship.cannonCooldown == 0 && ship.speed != 0)
 					{
-						ship.message = "MOVE " + fireTargets.get(0).x + " " + fireTargets.get(0).y;
+						for (Coord fireTarget : fireTargets)
+						{
+							int distance = ship.bow().distanceTo(fireTarget);
+							if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX)
+							{
+								command = "FIRE " + fireTarget.x + " " + fireTarget.y;
+								break;
+							}
+						}
 					}
-            	}
-                if (ship.message == "") ship.message = "WAIT";
-                System.out.println(ship.message);
+				}
+				else if (FIRE_DISTANCE_MAX < ship.bow().distanceTo(fireTargets.get(0)) && ship.cannonCooldown == 0) // Battle mode: Out of range
+				{
+					command = "MOVE " + fireTargets.get(0).x + " " + fireTargets.get(0).y;
+				}
+				else if (ship.cannonCooldown == 0)
+				{
+					command = "FIRE " + fireTargets.get(0).x + " " + fireTargets.get(0).y;
+				}
+				// else esquive ?
+				
+
+			
+                if (command == "") command = "WAIT";
+				ship.lastCommand = command;
+                System.out.println(ship.lastCommand);
             }
         }
     }
