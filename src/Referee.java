@@ -1229,6 +1229,7 @@ class Referee {
                     it.remove();
                     break;
                 } else if (position.equals(ship.position)) {
+					System.err.println("YO");
                     damage.add(new Damage(position, HIGH_DAMAGE, true));
                     ship.damage(HIGH_DAMAGE);
                     it.remove();
@@ -1279,6 +1280,7 @@ class Referee {
         rotateShips();
 
         explodeShips();
+		this.displayEntities();
         explodeMines();
         explodeBarrels();
 
@@ -1533,17 +1535,29 @@ class Referee {
         }
         else if (entityType.toUpperCase().equals("CANNONBALL"))
         {
-            for (Ship srcShip : this.ships)
-            {
-                if (srcShip.id == arg1)
-                {
-                    int srcX = srcShip.position.x;
-                    int srcY = srcShip.position.y;
-                    Cannonball cannonball = new Cannonball(x, y, arg1, srcX, srcY, arg2);
-                        this.cannonballs.add(cannonball);
-                    break;
-                }
-            }
+			boolean foundElement = false;
+			for (Cannonball cannonball : cannonballs)
+			{
+				if (cannonball.position.x == x && cannonball.position.y == y && cannonball.remainingTurns == arg2 && cannonball.ownerEntityId == arg1) 
+				{
+					foundElement = true;
+					break;
+				}
+			}
+			if (foundElement == false)
+			{
+			    for (Ship srcShip : this.ships)
+				{
+					if (srcShip.id == arg1)
+					{
+						int srcX = srcShip.position.x;
+						int srcY = srcShip.position.y;
+						Cannonball cannonball = new Cannonball(x, y, arg1, srcX, srcY, arg2);
+						this.cannonballs.add(cannonball);
+						break;
+					}
+				}	
+			}
         }
         else if (entityType.toUpperCase().equals("MINE"))
         {
@@ -1566,16 +1580,16 @@ class Referee {
     
 	protected void makeDecision(int idPlayer)
     {
-        for (Player player : this.players)
+        for (Player player : players)
         {
             if (idPlayer != player.id) continue;
             for (Ship ship : player.ships)
             {
             	if (ship.health < 80) // Go restore health
             	{
-                    if (this.barrels.size() != 0)
+                    if (barrels.size() != 0)
                     {
-                        ship.target = ship.closestBarrel(this.barrels).position;
+                        ship.target = ship.closestBarrel(barrels).position;
                     }
                     else if (ship.position.x == ship.target.x && ship.position.y == ship.target.y)
                     {
@@ -1585,7 +1599,7 @@ class Referee {
             	}
             	else // Go attack opponents
             	{
-            		List<Coord> fireTargets = player.computeFireTargets(this.ships, this.mines, this.barrels);
+            		List<Coord> fireTargets = player.computeFireTargets(ships, mines, barrels);
             		boolean fire = false;
                 	for (Coord fireTarget : fireTargets)
                 	{
@@ -1649,7 +1663,7 @@ class Player {
 
                 }
                 
-                currentBoard.displayEntities();
+                //currentBoard.displayEntities();
                 // my decision
                 currentBoard.makeDecision(1);
                 try
