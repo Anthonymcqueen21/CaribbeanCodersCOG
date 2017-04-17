@@ -268,6 +268,11 @@ class Referee {
             this.type = type;
             this.position = new Coord(x, y);
         }
+		
+		public int getId()
+		{
+			return this.id;
+		}
 
         public String toViewString() {
             return join(id, position.y, position.x);
@@ -433,8 +438,7 @@ class Referee {
                 this.position = new Coord(x, y);
                 this.orientation = orientation;
                 this.speed = speed;
-                this.health = health;
-                this.owner = owner;
+				this.health = health;
         	}
         }
         
@@ -1094,7 +1098,7 @@ class Referee {
                 it.remove();
             }
         }
-
+		
         // Collision with the mines
         for (Iterator<Mine> it = mines.iterator(); it.hasNext();) {
             Mine mine = it.next();
@@ -1280,9 +1284,8 @@ class Referee {
         applyActions();
         moveShips();
         rotateShips();
-
+		
         explodeShips();
-		this.displayEntities();
         explodeMines();
         explodeBarrels();
 
@@ -1488,6 +1491,7 @@ class Referee {
             }
             
         }
+		/*
         System.err.println("Barrels");
         for (RumBarrel barrel : this.barrels)
         {
@@ -1498,20 +1502,48 @@ class Referee {
         {
             System.err.println(cannonball.toViewString());
         }
+		*/
         System.err.println("Mines");
         for (Mine mine : this.mines)
         {
             System.err.println(mine.toViewString());
         }
     }
+	
+	protected void checkShipRemoved(List<String> opponentShips)
+	{
+		if (opponentShips.size() != 0)
+		{
+			Iterator<Ship> iterator = ships.iterator(); 
+			while (iterator.hasNext())
+			{
+				Ship ship = iterator.next();
+				boolean foundElement = false;
+				for (String opponentShip : opponentShips)
+				{
+					int entityId = Integer.parseInt(opponentShip.split(";")[0]);
+					if (ship.getId() == entityId) 
+					{
+						foundElement = true; 
+						break;
+					}
+				}
+				if (foundElement == false)
+				{
+					iterator.remove();
+				}
+			}
+		}
+	}
     
     protected void updateEntity(int entityId, String entityType, int x, int y, int arg1, int arg2, int arg3, int arg4) throws InvalidFormatException 
     {
         if (entityType.toUpperCase().equals("SHIP"))
         {
-            for (Ship ship : this.ships)
+            for (Ship ship : ships)
             {
-                if (ship.id == entityId)
+            	System.err.println("shipId: " + ship.getId() + " - " + entityId + " health: " + arg3);
+                if (ship.getId() == entityId)
                 {
                     ship.update(entityId, x, y, arg1, arg2, arg3, arg4);
                     break;
@@ -1590,7 +1622,6 @@ class Referee {
 				String command = "";
 				// Interresting target to fire
 				List<Coord> fireTargets = player.computeFireTargets(ships, mines, barrels);
-				
 				if (barrels.size() != 0) // Moving in order to restore health
 				{
 					ship.target = ship.closestBarrel(barrels).position;
@@ -1645,12 +1676,27 @@ class Player {
 
             int gameTurn = 1;
             // game loop
+			int saveCountOpponentShips = 99; // save the last number of ships
             while (gameTurn < 401) {
             	
-                currentBoard.prepare(1);
+            	if (gameTurn != 1)
+            	{
+                    currentBoard.prepare(1);
+    				try
+                    {
+                        currentBoard.updateGame(1);
+                    }
+                    catch (GameOverException e)
+                    {
+                    	e.printStackTrace();
+                    }
+            	}
+
                 // Update new inputs
                 int myShipCount = in.nextInt(); // the number of remaining ships
                 int entityCount = in.nextInt(); // the number of entities (e.g. ships, mines or cannonballs)
+    			List<String> opponentShips = new ArrayList(); // (remove opponent ships that is destroyed because of unknown mines)
+				if (gameTurn == 1) saveCountOpponentShips = myShipCount;
                 for (int i = 0; i < entityCount; i++) {
                     int entityId = in.nextInt();
                     String entityType = in.next();
@@ -1660,26 +1706,30 @@ class Player {
                     int arg2 = in.nextInt();
                     int arg3 = in.nextInt();
                     int arg4 = in.nextInt();
-                    if (gameTurn == 1)
+                    if (entityType.equals("SHIP") && gameTurn == 1)
                     {
                     	currentBoard.constructShip(entityId, entityType, x, y, arg1, arg2, arg3, arg4);
                     }
+					if (entityType.equals("SHIP") && arg4 == 0) // opponent ship
+					{
+						opponentShips.add(entityId + ";" + entityType + ";" + x + ";" + y + ";" + arg1 + ";" + arg2 + ";" + arg3 + ";" + arg4);
+					}
                     // Create + Update current entity
                     currentBoard.updateEntity(entityId, entityType, x, y, arg1, arg2, arg3, arg4);
-
                 }
-                
-                //currentBoard.displayEntities();
+				
+				if (saveCountOpponentShips != opponentShips.size()) // Opponent ship lost
+				{
+					System.err.println("saveCount: " + saveCountOpponentShips + " opponentShips: " + opponentShips.size());
+					saveCountOpponentShips = opponentShips.size();
+					// check if the simulation removed the ship, it can explode with mines that were never seen
+					currentBoard.checkShipRemoved(opponentShips);
+				}
+				
+				currentBoard.displayEntities();
                 // my decision
-                currentBoard.makeDecision(1);
-                try
-                {
-                    currentBoard.updateGame(1);
-                }
-                catch (GameOverException e)
-                {
-                	e.printStackTrace();
-                }
+
+				currentBoard.makeDecision(1);
             	gameTurn++;
             }
 		} 
