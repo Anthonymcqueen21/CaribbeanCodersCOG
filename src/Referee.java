@@ -187,7 +187,7 @@ class Referee {
             return this.toCubeCoordinate().distanceTo(dst.toCubeCoordinate());
         }
 
-        @Override
+    
         public boolean equals(Object obj) {
             if (obj == null || getClass() != obj.getClass()) {
                 return false;
@@ -196,7 +196,7 @@ class Referee {
             return y == other.y && x == other.x;
         }
 
-        @Override
+    
         public String toString() {
             return join(x, y);
         }
@@ -230,7 +230,7 @@ class Referee {
             return (Math.abs(x - dst.x) + Math.abs(y - dst.y) + Math.abs(z - dst.z)) / 2;
         }
 
-        @Override
+    
         public String toString() {
             return join(x, y, z);
         }
@@ -1335,12 +1335,7 @@ class Referee {
             }
         }
         cannonBallExplosions.clear();
-        damage.clear();
-        shipLosts.forEach(ship -> {
-        	ship.removeUniqueId();
-        });
-        shipLosts.clear();
-        
+        damage.clear();        
     }
 
     protected int getExpectedOutputLineCountForPlayer(int playerIdx) {
@@ -1689,6 +1684,14 @@ class Referee {
             }
         }
     }
+    
+    protected void updateMine() 
+    {
+        moveShips();
+        rotateShips();
+        moveCannonballs();
+        explodeMines();
+    }
 
     protected void updateGame(int round) throws GameOverException {
         moveCannonballs();
@@ -1933,14 +1936,9 @@ class Player {
 
             // game loop
             while (true) {
-                // Simulate next turn for knowing if some entities need to be removed
-                try {
-                	currentBoard.prepare(1);
-					currentBoard.updateGame(1);
-				} catch (GameOverException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
+                currentBoard.prepare(1);
+                currentBoard.updateMine();
+                
                 // Update new inputs
                 int myShipCount = in.nextInt(); // the number of remaining ships
                 int entityCount = in.nextInt(); // the number of entities (e.g. ships, mines or cannonballs)
