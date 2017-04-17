@@ -1,13 +1,20 @@
-import java.util.*;
-import java.io.*;
-import java.math.*; 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.Random;
+import java.util.Scanner;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -46,8 +53,9 @@ class WinException extends Exception {
     }
 }
 
+
 class Referee {
-    private static final int LEAGUE_LEVEL = 1;
+    private static final int LEAGUE_LEVEL = 3;
 
     private static final int MAP_WIDTH = 23;
     private static final int MAP_HEIGHT = 21;
@@ -111,7 +119,7 @@ class Referee {
         }
     }
 
-    private static final Pattern PLAYER_INPUT_MOVE_PATTERN = Pattern.compile("MOVE (?<x>[0-9]{1,8})\\s+(?<y>[0-9]{1,8})(?:\\s+(?<message>.+))?",
+    private static final Pattern PLAYER_INPUT_MOVE_PATTERN = Pattern.compile("MOVE (?<x>-?[0-9]{1,8})\\s+(?<y>-?[0-9]{1,8})(?:\\s+(?<message>.+))?",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern PLAYER_INPUT_SLOWER_PATTERN = Pattern.compile("SLOWER(?:\\s+(?<message>.+))?", Pattern.CASE_INSENSITIVE);
     private static final Pattern PLAYER_INPUT_FASTER_PATTERN = Pattern.compile("FASTER(?:\\s+(?<message>.+))?", Pattern.CASE_INSENSITIVE);
@@ -241,29 +249,22 @@ class Referee {
     }
 
     public static abstract class Entity {
-    	private static List<Integer> UNIQUE_ENTITY_ID_LIST = new ArrayList<Integer>();
         private static int UNIQUE_ENTITY_ID = 0;
 
         protected final int id;
         protected final EntityType type;
         protected Coord position;
 
-        public Entity(EntityType type, int x, int y) {
-        	do
-        	{
-            	UNIQUE_ENTITY_ID++;	
-        	} while (UNIQUE_ENTITY_ID_LIST.contains(UNIQUE_ENTITY_ID_LIST));
-            this.id = UNIQUE_ENTITY_ID;
-            UNIQUE_ENTITY_ID = 0;
-            UNIQUE_ENTITY_ID_LIST.add(UNIQUE_ENTITY_ID);
+        // WARNING ENTITYID MUST BE UNIQUE
+        public Entity(int entityId, EntityType type, int x, int y) {
+        	UNIQUE_ENTITY_ID = Math.max(UNIQUE_ENTITY_ID, entityId);
+            this.id = entityId;
             this.type = type;
             this.position = new Coord(x, y);
         }
         
-        public Entity(int entityId, EntityType type, int x, int y) throws InvalidInputException {
-            if (UNIQUE_ENTITY_ID_LIST.contains(entityId)) throw new InvalidInputException("entityId has to be unique");
-        	this.id = entityId;
-        	UNIQUE_ENTITY_ID_LIST.add(entityId);
+        public Entity(EntityType type, int x, int y) {
+            this.id = UNIQUE_ENTITY_ID++;
             this.type = type;
             this.position = new Coord(x, y);
         }
@@ -275,18 +276,9 @@ class Referee {
         protected String toPlayerString(int arg1, int arg2, int arg3, int arg4) {
             return join(id, type.name(), position.x, position.y, arg1, arg2, arg3, arg4);
         }
-        
-        protected void removeUniqueId()
-        {
-        	UNIQUE_ENTITY_ID_LIST.remove(this.id);
-        }
     }
 
     public static class Mine extends Entity {
-        public Mine(int entityId, int x, int y) throws InvalidInputException {
-            super(entityId, EntityType.MINE, x, y);
-        }
-        
         public Mine(int x, int y) {
             super(EntityType.MINE, x, y);
         }
@@ -344,14 +336,6 @@ class Referee {
         final int initialRemainingTurns;
         int remainingTurns;
 
-        public Cannonball(int entityId, int row, int col, int ownerEntityId, int srcX, int srcY, int remainingTurns) throws InvalidInputException {
-            super(entityId, EntityType.CANNONBALL, row, col);
-            this.ownerEntityId = ownerEntityId;
-            this.srcX = srcX;
-            this.srcY = srcY;
-            this.initialRemainingTurns = this.remainingTurns = remainingTurns;
-        }
-        
         public Cannonball(int row, int col, int ownerEntityId, int srcX, int srcY, int remainingTurns) {
             super(EntityType.CANNONBALL, row, col);
             this.ownerEntityId = ownerEntityId;
@@ -367,21 +351,11 @@ class Referee {
         public String toPlayerString(int playerIdx) {
             return toPlayerString(ownerEntityId, remainingTurns, 0, 0);
         }
-
-        public void update(int arg2)
-        {
-            this.remainingTurns = arg2;
-        }
     }
 
     public static class RumBarrel extends Entity {
         private int health;
 
-        public RumBarrel(int entityId, int x, int y, int health) throws InvalidInputException {
-            super(entityId, EntityType.BARREL, x, y);
-            this.health = health;
-        }
-        
         public RumBarrel(int x, int y, int health) {
             super(EntityType.BARREL, x, y);
             this.health = health;
@@ -393,15 +367,6 @@ class Referee {
 
         public String toPlayerString(int playerIdx) {
             return toPlayerString(health, 0, 0, 0);
-        }
-
-        public void update(int entityId, int x, int y, int health)
-        {
-            if (this.id == entityId)
-            {
-                this.position = new Coord(x, y);
-                this.health = health;
-            }
         }
     }
 
@@ -429,6 +394,7 @@ class Referee {
         int orientation;
         int speed;
         int health;
+        int initialHealth;
         int owner;
         String message;
         Action action;
@@ -439,8 +405,9 @@ class Referee {
         public Coord newPosition;
         public Coord newBowCoordinate;
         public Coord newSternCoordinate;
-
-        public Ship(int entityId, int x, int y, int orientation, int owner) throws InvalidInputException {
+        
+        // WARNING ENTITYID MUST BE UNIQUE
+        public Ship(int entityId, int x, int y, int orientation, int owner) {
             super(entityId, EntityType.SHIP, x, y);
             this.orientation = orientation;
             this.speed = 0;
@@ -455,22 +422,19 @@ class Referee {
             this.health = INITIAL_SHIP_HEALTH;
             this.owner = owner;
         }
-
-        public String toViewString() {
-            return join(id, position.y, position.x, orientation, health, speed, (action != null ? action : "WAIT"), bow().y, bow().x, stern().y,
-                    stern().x, " ;" + (message != null ? message : ""));
+        
+        public void update(int entityId, int x, int y, int orientation, int speed, int health, int owner)
+        {
+        	if (entityId == this.id)
+        	{
+                this.position = new Coord(x, y);
+                this.orientation = orientation;
+                this.speed = speed;
+                this.health = health;
+                this.owner = owner;
+        	}
         }
-
-        public String toPlayerString(int playerIdx) {
-            return toPlayerString(orientation, speed, health, owner == playerIdx ? 1 : 0);
-        }
-
-        public void setMessage(String message) {
-            if (message != null && message.length() > 50) {
-                message = message.substring(0, 50) + "...";
-            }
-            this.message = message;
-        }
+        
 
         public RumBarrel closestBarrel(List<RumBarrel> barrels) throws ExceptionInInitializerError
         {
@@ -493,6 +457,22 @@ class Referee {
             {
                 throw new ExceptionInInitializerError("No barrel left");
             }
+        }
+
+        public String toViewString() {
+            return join(id, position.y, position.x, orientation, health, speed, (action != null ? action : "WAIT"), bow().y, bow().x, stern().y,
+                    stern().x, " ;" + (message != null ? message : ""));
+        }
+
+        public String toPlayerString(int playerIdx) {
+            return toPlayerString(orientation, speed, health, owner == playerIdx ? 1 : 0);
+        }
+
+        public void setMessage(String message) {
+            if (message != null && message.length() > 50) {
+                message = message.substring(0, 50) + "...";
+            }
+            this.message = message;
         }
 
         public void moveTo(int x, int y) {
@@ -703,32 +683,50 @@ class Referee {
                 this.action = Action.FIRE;
             }
         }
-
-        // Updating ships with inputs from the game
-        public void update(int entityId, int x, int y, int arg1, int arg2, int arg3, int arg4)
-        {
-            if (this.id == entityId)
-            {
-                this.position = new Coord(x, y);
-                this.orientation = arg1;
-                this.speed = arg2;
-                this.health = arg3;
-                this.owner = arg4;
-            }
-        }
     }
 
     private static class Player {
         private int id;
         private List<Ship> ships;
         private List<Ship> shipsAlive;
-        private List<Ship> opponentShipsAlive;
 
         public Player(int id) {
             this.id = id;
             this.ships = new ArrayList<>();
             this.shipsAlive = new ArrayList<>();
-            this.opponentShipsAlive = new ArrayList<>();
+        }
+        
+        public List<Coord> computeFireTargets(List<Ship> ships, List<Mine> mines, List<RumBarrel> barrels)
+        {
+        	List<Coord> fireTargets = new ArrayList();
+        	for (Ship ship : ships)
+        	{
+        		if (ship.owner != id) // Opponent ship
+        		{
+        			// Attack the center of the ship
+        			fireTargets.add(ship.position);
+        			// Destroy the mine if damage to the enemy
+        			for (Mine mine : mines)
+        			{
+            			if (ship.bow().distanceTo(mine.position) <= 1)
+            			{
+            				fireTargets.add(mine.position);
+            			}
+        			}
+        			// Destroy the barrel which is closer to the opponent than our ships
+        			for (RumBarrel barrel : barrels)
+        			{
+        				int distanceOpponent = ship.bow().distanceTo(barrel.position);
+        				boolean orderFire = false;
+        				for (Ship shipAlive : this.shipsAlive)
+        				{
+        					if (distanceOpponent < shipAlive.bow().distanceTo(barrel.position)) orderFire = true;
+        				}
+        				if (orderFire == true) fireTargets.add(barrel.position);
+        			}
+        		}
+        	}
+        	return fireTargets;
         }
 
         public void setDead() {
@@ -757,207 +755,6 @@ class Referee {
         }
     }
 
-    public static class Solution
-    {
-    	// Key: ship -> Value: Tree of possible move
-        Map<Ship, List<String[]>> solution;
-        public Solution()
-        {
-        	this.solution = new HashMap<Ship, List<String[]>>();
-        }
-        
-        public void populate(int width, int depth, List<Ship> shipAlives, List<Coord> targets, Random rand) throws InvalidInputException
-        {
-        	for (Ship shipAlive : shipAlives)
-        	{
-        		List<String[]> tree = new ArrayList<String[]>();;
-            	for (int iWidth = 0; iWidth < width; iWidth++)
-            	{
-            		String[] moves = new String[depth];
-            		for (int iDepth = 0; iDepth < depth; iDepth++)
-            		{
-            			String move = "";
-            			do
-            			{
-            				try
-            				{
-                				move = randomizeMove(rand, shipAlive, targets);
-            				}
-            				catch (InvalidInputException e)
-            				{
-            					e.printStackTrace();
-            				}
-            			} while (move == "");
-            			moves[iDepth] = move;
-            		}
-            		tree.add(moves);
-            	}
-                if (this.solution.containsKey(shipAlive)) {
-                    this.solution.get(shipAlive).addAll(tree);
-                } else {
-                    this.solution.put(shipAlive, new ArrayList<String[]>());
-                    this.solution.get(shipAlive).addAll(tree);
-                }
-        	}
-        }
-        
-        public String randomizeMove(Random rand, Ship ship, List<Coord> targets) throws InvalidInputException
-        {
-        	String move = null;
-            switch(rand.nextInt(7))
-            {
-                case 0: 
-                    move = "SLOWER";
-                    break;
-                case 1:
-                    move = "FASTER";
-                    break;
-                case 2:
-                    move = "WAIT";
-                    break;
-                case 3:
-                    move = "PORT";
-                    break;
-                case 4:
-                    move = "STARBOARD";
-                    break;
-                case 5:
-                	if (targets.size() == 0)
-                	{
-                		throw new InvalidInputException("No target worth to fire", move);
-                	}
-                	int minDistance = 99;
-                	Coord minDistanceFireTarget = null;
-					for (Iterator<Coord> iterator = targets.iterator(); iterator.hasNext();) {
-						Coord target = iterator.next();
-						int distance = ship.bow().distanceTo(target);
-						if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0 && distance < minDistance)
-						{
-						    minDistance = distance;
-						    minDistanceFireTarget = target;
-						}
-					}
-                	if (minDistanceFireTarget == null)
-                	{
-                		throw new InvalidInputException("No target in range to fire", move);
-                	}
-                    move = "FIRE " + minDistanceFireTarget.x + " " + minDistanceFireTarget.y;
-                    break;
-                case 6:
-                    move = "MINE";
-                    break;
-            }
-            return move;
-        }
-        
-        public float score(Referee board, int playerIdx, int round, String[] moves1)
-        {
-            // Saving the state of the game
-            board.save();
-
-            // Playing moves
-            for (int i = 0; i < moves1.length; ++i)
-            {
-                try {
-					board.handlePlayerOutput(round, round, playerIdx, moves1);
-				} catch (WinException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (LostException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (InvalidInputException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-                
-                try {
-					board.updateGame(1);
-				} catch (GameOverException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-            }
-            // Compute score
-            float result = board.getEvaluation(1, 0);
-
-            // Loading the previous state of the game
-            board.load();
-
-            return result;
-        }
-        
-        public float score(Referee board, int playerIdx, int round, String[] moves1, String[] moves2, String[] moves3)
-        {
-            // Saving the state of the game
-            board.save();
-
-            // Playing moves
-            for (int i = 0; i < Math.min(Math.min(moves1.length, moves2.length), moves3.length); ++i)
-            {
-                try {
-					board.handlePlayerOutput(round, round, playerIdx, moves1);
-	                board.handlePlayerOutput(round, round, playerIdx, moves2);
-	                board.handlePlayerOutput(round, round, playerIdx, moves3);
-				} catch (WinException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (LostException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (InvalidInputException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-                
-                try {
-					board.updateGame(1);
-				} catch (GameOverException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-            }
-            // Compute score
-            float result = board.getEvaluation(1, 0);
-
-            // Loading the previous state of the game
-            board.load();
-
-            return result;
-        }
-    }
-
-    protected void displayEntities()
-    {
-        System.err.println("ShipsAlive");
-        for (Player player : this.players)
-        {
-        	System.err.println("Player: " + player.id);
-            for (Ship shipAlive : player.shipsAlive)
-            {
-                System.err.println(shipAlive.toViewString());
-            }
-            
-        }
-/*
-        System.err.println("Barrels");
-        for (RumBarrel barrel : this.barrels)
-        {
-            System.err.println(barrel.toViewString());
-        }
-        System.err.println("Cannonball");
-        for (Cannonball cannonball : cannonballs)
-        {
-            System.err.println(cannonball.toViewString());
-        }
-        System.err.println("Mines");
-        for (Mine mine : this.mines)
-        {
-            System.err.println(mine.toViewString());
-        }
-*/
-    }
-
     private long seed;
     private List<Cannonball> cannonballs;
     private List<Mine> mines;
@@ -965,61 +762,11 @@ class Referee {
     private List<Player> players;
     private List<Ship> ships;
     private List<Damage> damage;
-    private List<Ship> shipLosts;
     private List<Coord> cannonBallExplosions;
     private int shipsPerPlayer;
     private int mineCount;
     private int barrelCount;
     private Random random;
-
-    // variables used for saving/loading back previous stats of the game
-    private long saveSeed;
-    private List<Cannonball> saveCannonballs;
-    private List<Mine> saveMines;
-    private List<RumBarrel> saveBarrels;
-    private List<Player> savePlayers;
-    private List<Ship> saveShips;
-    private List<Damage> saveDamage;
-    private List<Ship> saveShipLosts;
-    private List<Coord> saveCannonBallExplosions;
-    private int saveShipsPerPlayer;
-    private int saveMineCount;
-    private int saveBarrelCount;
-    private Random saveRandom;
-
-    public void save()
-    {
-        this.saveSeed = this.seed;
-        this.saveCannonballs = this.cannonballs;
-        this.saveMines = this.mines;
-        this.saveBarrels = this.barrels;
-        this.savePlayers = this.players;
-        this.saveShips = this.ships;
-        this.saveDamage = this.damage;
-        this.saveShipLosts = this.shipLosts;
-        this.saveCannonBallExplosions = this.cannonBallExplosions;
-        this.saveShipsPerPlayer = this.shipsPerPlayer;
-        this.saveMineCount = this.mineCount;
-        this.saveBarrelCount = this.barrelCount;
-        this.saveRandom = this.random;
-    }
-
-    public void load()
-    {
-        this.seed = this.saveSeed;
-        this.cannonballs = this.saveCannonballs;
-        this.mines = this.saveMines;
-        this.barrels = this.saveBarrels;
-        this.players = this.savePlayers;
-        this.ships = this.saveShips;
-        this.damage = this.saveDamage;
-        this.shipLosts = this.saveShipLosts;
-        this.cannonBallExplosions = this.saveCannonBallExplosions;
-        this.shipsPerPlayer = this.saveShipsPerPlayer;
-        this.mineCount = this.saveMineCount;
-        this.barrelCount = this.saveBarrelCount;
-        this.random = this.saveRandom;
-    }
 
     public Referee(InputStream is, PrintStream out, PrintStream err) throws IOException {
         // super(is, out, err);
@@ -1049,11 +796,10 @@ class Referee {
                 Integer.valueOf(prop.getProperty("barrelCount", String.valueOf(random.nextInt(MAX_RUM_BARRELS - MIN_RUM_BARRELS) + MIN_RUM_BARRELS))),
                 MIN_RUM_BARRELS, MAX_RUM_BARRELS);
 
-        cannonballs = new ArrayList<>();
-        cannonBallExplosions = new ArrayList<>();
-        damage = new ArrayList<>();
-        shipLosts = new ArrayList<>();
-
+        this.cannonballs = new ArrayList<>();
+        this.cannonBallExplosions = new ArrayList<>();
+        this.damage = new ArrayList<>();
+        
         // Generate Players
         this.players = new ArrayList<Player>(playerCount);
         for (int i = 0; i < playerCount; i++) {
@@ -1064,6 +810,7 @@ class Referee {
         this.mines = new ArrayList<>();
         this.barrels = new ArrayList<>();
     }
+    
 
     protected void initReferee(int playerCount, Properties prop) throws InvalidFormatException {
         seed = Long.valueOf(prop.getProperty("seed", String.valueOf(new Random(System.currentTimeMillis()).nextLong())));
@@ -1087,7 +834,6 @@ class Referee {
         cannonballs = new ArrayList<>();
         cannonBallExplosions = new ArrayList<>();
         damage = new ArrayList<>();
-        shipLosts = new ArrayList<>();
 
         // Generate Players
         this.players = new ArrayList<Player>(playerCount);
@@ -1110,8 +856,6 @@ class Referee {
             this.players.get(1).ships.add(ship1);
             this.players.get(0).shipsAlive.add(ship0);
             this.players.get(1).shipsAlive.add(ship1);
-            this.players.get(0).opponentShipsAlive.add(ship1);
-            this.players.get(1).opponentShipsAlive.add(ship0);
         }
 
         this.ships = players.stream().map(p -> p.ships).flatMap(List::stream).collect(Collectors.toList());
@@ -1123,14 +867,11 @@ class Referee {
             int y = 1 + random.nextInt(MAP_HEIGHT / 2);
 
             Mine m = new Mine(x, y);
-            boolean valid = true;
-            for (Ship ship : this.ships) {
-                if (ship.at(m.position)) {
-                    valid = false;
-                    break;
-                }
-            }
-            if (valid) {
+
+            boolean cellIsFreeOfMines = mines.stream().noneMatch(mine -> mine.position.equals(m.position));
+            boolean cellIsFreeOfShips = ships.stream().noneMatch(ship -> ship.at(m.position));
+
+            if (cellIsFreeOfShips && cellIsFreeOfMines) {
                 if (y != MAP_HEIGHT - 1 - y) {
                     mines.add(new Mine(x, MAP_HEIGHT - 1 - y));
                 }
@@ -1147,176 +888,22 @@ class Referee {
             int h = MIN_RUM_BARREL_VALUE + random.nextInt(1 + MAX_RUM_BARREL_VALUE - MIN_RUM_BARREL_VALUE);
 
             RumBarrel m = new RumBarrel(x, y, h);
-            boolean valid = true;
-            for (Ship ship : this.ships) {
-                if (ship.at(m.position)) {
-                    valid = false;
-                    break;
-                }
-            }
-            for (Mine mine : this.mines) {
-                if (mine.position.equals(m.position)) {
-                    valid = false;
-                    break;
-                }
-            }
-            if (valid) {
+
+            boolean cellIsFreeOfBarrels = barrels.stream().noneMatch(barrel -> barrel.position.equals(m.position));
+            boolean cellIsFreeOfMines = mines.stream().noneMatch(mine -> mine.position.equals(m.position));
+            boolean cellIsFreeOfShips = ships.stream().noneMatch(ship -> ship.at(m.position));
+
+            if (cellIsFreeOfShips && cellIsFreeOfMines && cellIsFreeOfBarrels) {
                 if (y != MAP_HEIGHT - 1 - y) {
                     barrels.add(new RumBarrel(x, MAP_HEIGHT - 1 - y, h));
                 }
                 barrels.add(m);
             }
         }
-    }
-
-    protected void removeEntity(int entityId, String entityType)
-    {
-
-        if (entityType.toUpperCase().equals("SHIP"))
-        {
-        	for (Player player : this.players)
-        	{
-        		player.shipsAlive.removeIf(ship -> {
-            		return ship.id == entityId;
-            	});
-            	player.opponentShipsAlive.removeIf(ship -> {
-            		return ship.id == entityId;
-            	});
-        	}
-        }
-        else if (entityType.toUpperCase().equals("BARREL"))
-        {
-        	this.barrels.removeIf(barrel -> {
-        		return barrel.id == entityId;
-        	});
-        }
-        else if (entityType.toUpperCase().equals("CANNONBALL"))
-        {
-           	this.cannonballs.removeIf(cannonball -> {
-        		return cannonball.id == entityId;
-        	});
-        }
-        else if (entityType.toUpperCase().equals("MINE"))
-        {
-        	this.mines.removeIf(mine -> {
-        		return mine.id == entityId;
-        	});
-        }
-    }
-    protected void updateEntity(int entityId, String entityType, int x, int y, 
-    int arg1, int arg2, int arg3, int arg4) throws InvalidFormatException 
-    {
-        if (entityType.toUpperCase().equals("SHIP"))
-        {
-            // Players must be added to the list
-            // currentBoard.players.get(arg4).add(ship);
-            boolean foundElement = false;
-            for (Ship ship : this.ships)
-            {
-                if (ship.id == entityId)
-                {
-                    ship.update(entityId, x, y, arg1, arg2, arg3, arg4);
-                    foundElement = true;
-                    break;
-                }
-            }
-            if (foundElement == false)
-            {
-				try {
-					Ship ship = new Ship(entityId, x, y, arg1, arg4);
-	                this.ships.add(ship);
-	                this.players.get(arg4).ships.add(ship);
-	                this.players.get(arg4).shipsAlive.add(ship);
-	                if (arg4 == 1) this.players.get(0).opponentShipsAlive.add(ship);
-	                else if (arg4 == 0) this.players.get(1).opponentShipsAlive.add(ship);
-				} catch (InvalidInputException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-            }
-        }
-        else if (entityType.toUpperCase().equals("BARREL"))
-        {
-            // Players must be added to the list
-            // currentBoard.players.get(arg4).add(ship);
-            boolean foundElement = false;
-            for (RumBarrel barrel : this.barrels)
-            {
-                if (barrel.id == entityId)
-                {
-                    barrel.update(entityId, x, y, arg1);
-                    foundElement = true;
-                    break;
-                }
-            }
-            if (foundElement == false)
-            {
-				try {
-					RumBarrel barrel = new RumBarrel(entityId, x, y, arg1);
-	                this.barrels.add(barrel);
-				} catch (InvalidInputException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-            }
-        }
-        else if (entityType.toUpperCase().equals("CANNONBALL"))
-        {
-            boolean foundElement = false;
-            for (Cannonball cannonball : this.cannonballs)
-            {
-                if (cannonball.ownerEntityId == arg1)
-                {
-                    cannonball.update(arg2);
-                    foundElement = true;
-                    break;
-                }
-            }
-            if (foundElement == false)
-            {
-                for (Ship srcShip : this.ships)
-                {
-                    if (srcShip.id == arg1)
-                    {
-                        int srcX = srcShip.position.x;
-                        int srcY = srcShip.position.y;
-                        Cannonball cannonball;
-						try {
-							cannonball = new Cannonball(entityId, x, y, arg1, srcX, srcY, arg2);
-	                        this.cannonballs.add(cannonball);
-						} catch (InvalidInputException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-                        break;
-                    }
-                }
-            }
-        }
-        else if (entityType.toUpperCase().equals("MINE"))
-        {
-            boolean foundElement = false;
-            for (Mine mine : this.mines)
-            {
-                if (mine.position.x == x && mine.position.y == y)
-                {
-                    foundElement = true;
-                    break;
-                }
-            }
-            if (foundElement == false)
-            {
-				try {
-					Mine m = new Mine(entityId, x, y);
-	                this.mines.add(m);
-				} catch (InvalidInputException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-            }
-        }
+        barrelCount = barrels.size();
 
     }
+
 
     protected Properties getConfiguration() {
         Properties prop = new Properties();
@@ -1327,6 +914,7 @@ class Referee {
         return prop;
     }
 
+
     protected void prepare(int round) {
         for (Player player : players) {
             for (Ship ship : player.ships) {
@@ -1335,12 +923,14 @@ class Referee {
             }
         }
         cannonBallExplosions.clear();
-        damage.clear();        
+        damage.clear();
     }
+
 
     protected int getExpectedOutputLineCountForPlayer(int playerIdx) {
         return this.players.get(playerIdx).shipsAlive.size();
     }
+
 
     protected void handlePlayerOutput(int frame, int round, int playerIdx, String[] outputs)
             throws WinException, LostException, InvalidInputException {
@@ -1402,6 +992,12 @@ class Referee {
         }
     }
 
+    private void updateInitialRum() {
+        for (Ship ship : ships) {
+            ship.initialHealth = ship.health;
+        }
+    }
+
     private void moveCannonballs() {
         for (Iterator<Cannonball> it = cannonballs.iterator(); it.hasNext();) {
             Cannonball ball = it.next();
@@ -1454,9 +1050,10 @@ class Referee {
 
                             if (target.isInsideMap()) {
                                 boolean cellIsFreeOfBarrels = barrels.stream().noneMatch(barrel -> barrel.position.equals(target));
+                                boolean cellIsFreeOfMines = mines.stream().noneMatch(mine -> mine.position.equals(target));
                                 boolean cellIsFreeOfShips = ships.stream().filter(b -> b != ship).noneMatch(b -> b.at(target));
 
-                                if (cellIsFreeOfBarrels && cellIsFreeOfShips) {
+                                if (cellIsFreeOfBarrels && cellIsFreeOfShips && cellIsFreeOfMines) {
                                     ship.mineCooldown = COOLDOWN_MINE;
                                     Mine mine = new Mine(target.x, target.y);
                                     mines.add(mine);
@@ -1468,7 +1065,7 @@ class Referee {
                     case FIRE:
                         int distance = ship.bow().distanceTo(ship.target);
                         if (ship.target.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0) {
-                            int travelTime = 1 + Math.round(ship.bow().distanceTo(ship.target) / 3);
+                            int travelTime = (int) (1 + Math.round(ship.bow().distanceTo(ship.target) / 3.0));
                             cannonballs.add(new Cannonball(ship.target.x, ship.target.y, ship.id, ship.bow().x, ship.bow().y, travelTime));
                             ship.cannonCooldown = COOLDOWN_CANNON;
                         }
@@ -1481,7 +1078,7 @@ class Referee {
         }
     }
 
-    private boolean checkCollisions(Ship ship) {
+    private void checkCollisions(Ship ship) {
         Coord bow = ship.bow();
         Coord stern = ship.stern();
         Coord center = ship.position;
@@ -1505,8 +1102,6 @@ class Referee {
                 it.remove();
             }
         }
-
-        return ship.health <= 0;
     }
 
     private void moveShips() {
@@ -1566,14 +1161,8 @@ class Referee {
 
             for (Player player : players) {
                 for (Ship ship : player.shipsAlive) {
-                    if (ship.health == 0) {
-                        continue;
-                    }
-
                     ship.position = ship.newPosition;
-                    if (checkCollisions(ship)) {
-                        shipLosts.add(ship);
-                    }
+                    checkCollisions(ship);
                 }
             }
         }
@@ -1615,14 +1204,8 @@ class Referee {
         // Apply rotation
         for (Player player : players) {
             for (Ship ship : player.shipsAlive) {
-                if (ship.health == 0) {
-                    continue;
-                }
-
                 ship.orientation = ship.newOrientation;
-                if (checkCollisions(ship)) {
-                    shipLosts.add(ship);
-                }
+                checkCollisions(ship);
             }
         }
     }
@@ -1684,18 +1267,12 @@ class Referee {
             }
         }
     }
-    
-    protected void updateMine() 
-    {
-        moveShips();
-        rotateShips();
-        moveCannonballs();
-        explodeMines();
-    }
+
 
     protected void updateGame(int round) throws GameOverException {
         moveCannonballs();
         decrementRum();
+        updateInitialRum();
 
         applyActions();
         moveShips();
@@ -1705,8 +1282,14 @@ class Referee {
         explodeMines();
         explodeBarrels();
 
-        for (Ship ship : shipLosts) {
-            barrels.add(new RumBarrel(ship.position.x, ship.position.y, REWARD_RUM_BARREL_VALUE));
+        // For each sunk ship, create a new rum barrel with the amount of rum the ship had at the begin of the turn (up to 30).
+        for (Ship ship : ships) {
+            if (ship.health <= 0) {
+                int reward = Math.min(REWARD_RUM_BARREL_VALUE, ship.initialHealth);
+                if (reward > 0) {
+                    barrels.add(new RumBarrel(ship.position.x, ship.position.y, reward));
+                }
+            }
         }
 
         for (Coord position : cannonBallExplosions) {
@@ -1720,74 +1303,22 @@ class Referee {
                 it.remove();
             }
         }
-    	this.displayEntities();
+
         if (gameIsOver()) {
             throw new GameOverException("endReached");
         }
     }
 
-    protected void makeDecision(int idPlayer)
-    {
-        for (Player player : this.players)
-        {
-            if (idPlayer != player.id) continue;
-        	String move = "";
-            for (Ship ship : player.ships)
-            {
-            	if (ship.health < 80) // Go restore health
-            	{
-                    if (this.barrels.size() != 0)
-                    {
-                        ship.target = ship.closestBarrel(this.barrels).position;
-                    }
-                    else if (ship.position.x == ship.target.x && ship.position.y == ship.target.y)
-                    {
-                        ship.target = new Coord(random.nextInt(MAP_WIDTH),random.nextInt(MAP_HEIGHT));
-                    }
-                    move = "MOVE " + ship.target.x + " " + ship.target.y;
-            	}
-            	else // Go attack opponents
-            	{
-                	int minDistance = 99;
-                	Coord closestOpponentShip = null;
-                	Coord closestFireTarget = null;
-                	for (Ship opponentShip : player.opponentShipsAlive)
-                	{
-						Coord target = opponentShip.position;
-						int distance = ship.bow().distanceTo(target);
-						if (distance < minDistance) 
-						{
-							minDistance = distance;
-							closestOpponentShip = opponentShip.position;
-						}
-						if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0 && distance <= minDistance)
-						{
-							closestFireTarget = target;
-						}
-					}
-                	if (closestFireTarget != null)
-                	{
-                		move = "FIRE " + closestFireTarget.x + " " + closestFireTarget.y;
-                	}
-                	else if (closestOpponentShip != null)
-                	{
-                		move = "MOVE " + closestOpponentShip.x + " " + closestOpponentShip.y;
-                	}
-
-            	}
-            }
-            if (move == "") System.out.println("WAIT");
-            else System.out.println(move);
-        }
-    }
 
     protected void populateMessages(Properties p) {
         p.put("endReached", "End reached");
     }
 
+
     protected String[] getInitInputForPlayer(int playerIdx) {
         return new String[0];
     }
+
 
     protected String[] getInputForPlayer(int round, int playerIdx) {
         List<String> data = new ArrayList<>();
@@ -1808,7 +1339,7 @@ class Referee {
         // Visible mines
         for (Mine mine : mines) {
             boolean visible = false;
-            for (Ship ship : players.get(playerIdx).ships) {
+            for (Ship ship : players.get(playerIdx).shipsAlive) {
                 if (ship.position.distanceTo(mine.position) <= MINE_VISIBILITY_RANGE) {
                     visible = true;
                     break;
@@ -1832,6 +1363,7 @@ class Referee {
         return data.toArray(new String[data.size()]);
     }
 
+
     protected String[] getInitDataForView() {
         List<String> data = new ArrayList<>();
 
@@ -1841,6 +1373,7 @@ class Referee {
 
         return data.toArray(new String[data.size()]);
     }
+
 
     protected String[] getFrameDataForView(int round, int frame, boolean keyFrame) {
         List<String> data = new ArrayList<>();
@@ -1868,55 +1401,211 @@ class Referee {
         return data.toArray(new String[data.size()]);
     }
 
+
     protected String getGameName() {
         return "CodersOfTheCaribbean";
     }
+
 
     protected String getHeadlineAtGameStartForConsole() {
         return null;
     }
 
+
     protected int getMinimumPlayerCount() {
         return 2;
     }
+
 
     protected boolean showTooltips() {
         return true;
     }
 
+
     protected String[] getPlayerActions(int playerIdx, int round) {
         return new String[0];
     }
+
 
     protected boolean isPlayerDead(int playerIdx) {
         return false;
     }
 
+
     protected String getDeathReason(int playerIdx) {
         return "$" + playerIdx + ": Eliminated!";
     }
-    
+
+
     protected int getScore(int playerIdx) {
         return players.get(playerIdx).getScore();
     }
-    
-    protected int getEvaluation(int playerIdx, int opponentPlayerIdx) {
-    	return players.get(playerIdx).getScore() - players.get(opponentPlayerIdx).getScore();
-    }
+
+
     protected String[] getGameSummary(int round) {
         return new String[0];
     }
+
 
     protected void setPlayerTimeout(int frame, int round, int playerIdx) {
         players.get(playerIdx).setDead();
     }
 
+
     protected int getMaxRoundCount(int playerCount) {
         return 200;
     }
 
+
     protected int getMillisTimeForRound() {
         return 50;
+    }
+    
+    protected void constructShip(int entityId, String entityType, int x, int y, int arg1, int arg2, int arg3, int arg4)
+    {
+    	if (entityType.toUpperCase().equals("SHIP"))
+    	{
+    		Ship ship = new Ship(entityId, x, y, arg1, arg4);
+            this.ships.add(ship);
+            this.players.get(arg4).ships.add(ship);
+            this.players.get(arg4).shipsAlive.add(ship);
+    	}
+    }
+    
+    protected void displayEntities()
+    {
+        System.err.println("ShipsAlive");
+        for (Player player : this.players)
+        {
+        	System.err.println("Player: " + player.id);
+            for (Ship shipAlive : player.shipsAlive)
+            {
+                System.err.println(shipAlive.toViewString());
+            }
+            
+        }
+        System.err.println("Barrels");
+        for (RumBarrel barrel : this.barrels)
+        {
+            System.err.println(barrel.toViewString());
+        }
+        System.err.println("Cannonball");
+        for (Cannonball cannonball : cannonballs)
+        {
+            System.err.println(cannonball.toViewString());
+        }
+        System.err.println("Mines");
+        for (Mine mine : this.mines)
+        {
+            System.err.println(mine.toViewString());
+        }
+    }
+    
+    protected void updateEntity(int entityId, String entityType, int x, int y, int arg1, int arg2, int arg3, int arg4) throws InvalidFormatException 
+    {
+        if (entityType.toUpperCase().equals("SHIP"))
+        {
+            for (Ship ship : this.ships)
+            {
+                if (ship.id == entityId)
+                {
+                    ship.update(entityId, x, y, arg1, arg2, arg3, arg4);
+                    break;
+                }
+            }
+        }
+        else if (entityType.toUpperCase().equals("BARREL"))
+        {
+            boolean foundElement = false;
+            for (RumBarrel barrel : this.barrels)
+            {
+                if (barrel.position.x == x && barrel.position.y == y)
+                {
+                    foundElement = true;
+                    break;
+                }
+            }
+            if (foundElement == false)
+            {
+				RumBarrel barrel = new RumBarrel(x, y, arg1);
+                this.barrels.add(barrel);
+            }
+        }
+        else if (entityType.toUpperCase().equals("CANNONBALL"))
+        {
+            for (Ship srcShip : this.ships)
+            {
+                if (srcShip.id == arg1)
+                {
+                    int srcX = srcShip.position.x;
+                    int srcY = srcShip.position.y;
+                    Cannonball cannonball = new Cannonball(x, y, arg1, srcX, srcY, arg2);
+                        this.cannonballs.add(cannonball);
+                    break;
+                }
+            }
+        }
+        else if (entityType.toUpperCase().equals("MINE"))
+        {
+            boolean foundElement = false;
+            for (Mine mine : this.mines)
+            {
+                if (mine.position.x == x && mine.position.y == y)
+                {
+                    foundElement = true;
+                    break;
+                }
+            }
+            if (foundElement == false)
+            {
+				Mine m = new Mine(x, y);
+                this.mines.add(m);
+            }
+        }
+    }
+    
+	protected void makeDecision(int idPlayer)
+    {
+        for (Player player : this.players)
+        {
+            if (idPlayer != player.id) continue;
+            for (Ship ship : player.ships)
+            {
+            	if (ship.health < 80) // Go restore health
+            	{
+                    if (this.barrels.size() != 0)
+                    {
+                        ship.target = ship.closestBarrel(this.barrels).position;
+                    }
+                    else if (ship.position.x == ship.target.x && ship.position.y == ship.target.y)
+                    {
+                        ship.target = new Coord(random.nextInt(MAP_WIDTH),random.nextInt(MAP_HEIGHT));
+                    }
+                    ship.message =  "MOVE " + ship.target.x + " " + ship.target.y;
+            	}
+            	else // Go attack opponents
+            	{
+            		List<Coord> fireTargets = player.computeFireTargets(this.ships, this.mines, this.barrels);
+            		boolean fire = false;
+                	for (Coord fireTarget : fireTargets)
+                	{
+						int distance = ship.bow().distanceTo(fireTarget);
+						
+						if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0)
+						{
+	                		ship.message = "FIRE " + fireTarget.x + " " + fireTarget.y;
+	                		fire = true;
+						}
+                	}
+					if (fire == false && fireTargets.size() != 0)
+					{
+						ship.message = "MOVE " + fireTargets.get(0).x + " " + fireTargets.get(0).y;
+					}
+            	}
+                if (ship.message == "") ship.message = "WAIT";
+                System.out.println(ship.message);
+            }
+        }
     }
 }
 
@@ -1934,11 +1623,11 @@ class Player {
             Properties prop = currentBoard.getConfiguration();
             currentBoard.initEmptyReferee(2, prop);
 
+            int gameTurn = 1;
             // game loop
-            while (true) {
+            while (gameTurn < 401) {
+            	
                 currentBoard.prepare(1);
-                currentBoard.updateMine();
-                
                 // Update new inputs
                 int myShipCount = in.nextInt(); // the number of remaining ships
                 int entityCount = in.nextInt(); // the number of entities (e.g. ships, mines or cannonballs)
@@ -1951,13 +1640,27 @@ class Player {
                     int arg2 = in.nextInt();
                     int arg3 = in.nextInt();
                     int arg4 = in.nextInt();
-                    
+                    if (gameTurn == 1)
+                    {
+                    	currentBoard.constructShip(entityId, entityType, x, y, arg1, arg2, arg3, arg4);
+                    }
                     // Create + Update current entity
                     currentBoard.updateEntity(entityId, entityType, x, y, arg1, arg2, arg3, arg4);
+
                 }
                 
+                currentBoard.displayEntities();
                 // my decision
                 currentBoard.makeDecision(1);
+                try
+                {
+                    currentBoard.updateGame(1);
+                }
+                catch (GameOverException e)
+                {
+                	e.printStackTrace();
+                }
+            	gameTurn++;
             }
 		} 
        	catch (IOException e)
