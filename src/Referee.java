@@ -6,10 +6,12 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Random;
@@ -55,7 +57,7 @@ class WinException extends Exception {
 
 
 class Referee {
-    private static final int LEAGUE_LEVEL = 3;
+    private static final int LEAGUE_LEVEL = 1;
 
     private static final int MAP_WIDTH = 23;
     private static final int MAP_HEIGHT = 21;
@@ -703,39 +705,6 @@ class Referee {
             this.shipsAlive = new ArrayList<>();
         }
         
-        public List<Coord> computeFireTargets(List<Ship> ships, List<Mine> mines, List<RumBarrel> barrels)
-        {
-        	List<Coord> fireTargets = new ArrayList();
-        	for (Ship ship : ships)
-        	{
-        		if (ship.owner != id) // Opponent ship
-        		{
-        			// Attack the center of the ship
-        			fireTargets.add(ship.position);
-        			// Destroy the mine if damage to the enemy
-        			for (Mine mine : mines)
-        			{
-            			if (ship.bow().distanceTo(mine.position) <= 1)
-            			{
-            				fireTargets.add(mine.position);
-            			}
-        			}
-        			// Destroy the barrel which is closer to the opponent than our ships
-        			for (RumBarrel barrel : barrels)
-        			{
-        				int distanceOpponent = ship.bow().distanceTo(barrel.position);
-        				boolean orderFire = false;
-        				for (Ship shipAlive : this.shipsAlive)
-        				{
-        					if (distanceOpponent < shipAlive.bow().distanceTo(barrel.position)) orderFire = true;
-        				}
-        				if (orderFire == true) fireTargets.add(barrel.position);
-        			}
-        		}
-        	}
-        	return fireTargets;
-        }
-
         public void setDead() {
             for (Ship ship : ships) {
                 ship.health = 0;
@@ -761,6 +730,10 @@ class Referee {
             return data;
         }
     }
+    
+    protected int getEvaluation(int playerIdx, int opponentPlayerIdx) {
+    	return players.get(playerIdx).getScore() - players.get(opponentPlayerIdx).getScore();
+    }
 
     private long seed;
     private List<Cannonball> cannonballs;
@@ -769,11 +742,61 @@ class Referee {
     private List<Player> players;
     private List<Ship> ships;
     private List<Damage> damage;
+    private List<Ship> shipLosts;
     private List<Coord> cannonBallExplosions;
     private int shipsPerPlayer;
     private int mineCount;
     private int barrelCount;
     private Random random;
+
+    // variables used for saving/loading back previous stats of the game
+    private long saveSeed;
+    private List<Cannonball> saveCannonballs;
+    private List<Mine> saveMines;
+    private List<RumBarrel> saveBarrels;
+    private List<Player> savePlayers;
+    private List<Ship> saveShips;
+    private List<Damage> saveDamage;
+    private List<Ship> saveShipLosts;
+    private List<Coord> saveCannonBallExplosions;
+    private int saveShipsPerPlayer;
+    private int saveMineCount;
+    private int saveBarrelCount;
+    private Random saveRandom;
+
+    public void save()
+    {
+        this.saveSeed = this.seed;
+        this.saveCannonballs = this.cannonballs;
+        this.saveMines = this.mines;
+        this.saveBarrels = this.barrels;
+        this.savePlayers = this.players;
+        this.saveShips = this.ships;
+        this.saveDamage = this.damage;
+        this.saveShipLosts = this.shipLosts;
+        this.saveCannonBallExplosions = this.cannonBallExplosions;
+        this.saveShipsPerPlayer = this.shipsPerPlayer;
+        this.saveMineCount = this.mineCount;
+        this.saveBarrelCount = this.barrelCount;
+        this.saveRandom = this.random;
+    }
+
+    public void load()
+    {
+        this.seed = this.saveSeed;
+        this.cannonballs = this.saveCannonballs;
+        this.mines = this.saveMines;
+        this.barrels = this.saveBarrels;
+        this.players = this.savePlayers;
+        this.ships = this.saveShips;
+        this.damage = this.saveDamage;
+        this.shipLosts = this.saveShipLosts;
+        this.cannonBallExplosions = this.saveCannonBallExplosions;
+        this.shipsPerPlayer = this.saveShipsPerPlayer;
+        this.mineCount = this.saveMineCount;
+        this.barrelCount = this.saveBarrelCount;
+        this.random = this.saveRandom;
+    }
 
     public Referee(InputStream is, PrintStream out, PrintStream err) throws IOException {
         // super(is, out, err);
@@ -1166,12 +1189,15 @@ class Referee {
                 collisions.clear();
             }
 
-            for (Player player : players) {
-                for (Ship ship : player.shipsAlive) {
-                    ship.position = ship.newPosition;
-                    checkCollisions(ship);
-                }
-            }
+            // Move ships to their new location
+            for (Ship ship : this.ships) {
+            	ship.position = ship.newPosition;
+            	}
+            
+            // Check collisions
+            for (Ship ship : this.ships) {
+            	checkCollisions(ship);
+            	}
         }
     }
 
@@ -1209,12 +1235,13 @@ class Referee {
         }
 
         // Apply rotation
-        for (Player player : players) {
-            for (Ship ship : player.shipsAlive) {
-                ship.orientation = ship.newOrientation;
-                checkCollisions(ship);
-            }
+        for (Ship ship : this.ships) {
+        	ship.orientation = ship.newOrientation;
         }
+	    // Check collisions
+	    for (Ship ship : this.ships) {
+	    	checkCollisions(ship);
+	    }
     }
 
     private boolean gameIsOver() {
@@ -1274,7 +1301,6 @@ class Referee {
             }
         }
     }
-
 
     protected void updateGame(int round) throws GameOverException {
         moveCannonballs();
@@ -1448,6 +1474,10 @@ class Referee {
         return players.get(playerIdx).getScore();
     }
 
+    protected int eval(int playerIdx) {
+    	int opponentPlayerIdx = (playerIdx == 1) ? 1 : 0;
+        return players.get(playerIdx).getScore() - players.get(opponentPlayerIdx).getScore();
+    }
 
     protected String[] getGameSummary(int round) {
         return new String[0];
@@ -1491,7 +1521,6 @@ class Referee {
             }
             
         }
-		/*
         System.err.println("Barrels");
         for (RumBarrel barrel : this.barrels)
         {
@@ -1502,7 +1531,6 @@ class Referee {
         {
             System.err.println(cannonball.toViewString());
         }
-		*/
         System.err.println("Mines");
         for (Mine mine : this.mines)
         {
@@ -1542,7 +1570,6 @@ class Referee {
         {
             for (Ship ship : ships)
             {
-            	System.err.println("shipId: " + ship.getId() + " - " + entityId + " health: " + arg3);
                 if (ship.getId() == entityId)
                 {
                     ship.update(entityId, x, y, arg1, arg2, arg3, arg4);
@@ -1611,54 +1638,349 @@ class Referee {
             }
         }
     }
-    
-	protected void makeDecision(int idPlayer)
-    {
-        for (Player player : players)
+
+	public static class Solution
+	{
+		int shipCount;
+		Map<Ship, List<String>> shipMoves;
+		Random rand = new Random();
+		Integer[] score;
+		int sumScore;
+		int depth;
+		
+		// Heuristic
+        List<Coord> fireTargets;
+		
+	    public Solution()
+	    {
+	    	this.depth = 4;
+	    	this.shipMoves = new HashMap<Ship, List<String>>();
+	    	this.score = new Integer[depth];
+	    	this.sumScore = 0;
+            this.fireTargets = new ArrayList<Coord>();
+	    }
+	    
+	    public Solution(List<Ship> myShips)
+	    {
+	    	this.depth = 4;
+	    	this.shipMoves = new HashMap<Ship, List<String>>();
+	    	for (Ship ship : myShips)
+	    	{
+	    		this.shipMoves.put(ship, new ArrayList<String>());
+	    	}
+	    	this.shipCount = myShips.size();
+	    	this.score = new Integer[depth];
+	    	this.sumScore = 0;
+            this.fireTargets = new ArrayList<Coord>();
+	    }
+	    
+	    public Solution(Referee referee, int playerIdx)
+	    {
+	    	this.depth = 4;
+	    	this.shipMoves = new HashMap<Ship, List<String>>();
+	    	for (Ship ship : referee.players.get(playerIdx).shipsAlive)
+	    	{
+	    		this.shipMoves.put(ship, new ArrayList<String>());
+	    	}
+	    	this.shipCount = referee.players.get(playerIdx).shipsAlive.size();
+	    	this.score = new Integer[depth];
+	    	this.sumScore = 0;
+            this.fireTargets = new ArrayList<Coord>();
+	    }
+	    
+	    public Solution(Solution solution)
+	    {
+			this.shipCount = solution.shipCount;
+			this.shipMoves= solution.shipMoves;
+			this.rand = solution.rand;
+			this.score = solution.score;
+			this.sumScore = solution.sumScore;
+			this.depth = solution.depth;
+            this.fireTargets = new ArrayList<Coord>();
+	    }
+	    
+
+        public List<Coord> computeFireTargets(List<Ship> ships, List<Mine> mines, List<RumBarrel> barrels, int idPlayer)
         {
-            if (idPlayer != player.id) continue;
-            for (Ship ship : player.ships)
+        	List<Coord> fireTargets = new ArrayList();
+        	for (Ship opponentShip : ships)
+        	{
+        		if (opponentShip.owner != idPlayer) // Opponent ship
+        		{
+        			// Attack the center of the ship
+        			fireTargets.add(opponentShip.position);
+        			
+        			// Destroy the mine if damage to the enemy
+        			for (Mine mine : mines)
+        			{
+            			if (opponentShip.bow().distanceTo(mine.position) <= 1)
+            			{
+            				fireTargets.add(mine.position);
+            			}
+        			}
+        			// Destroy the barrel which is closer to the opponent than our ships
+        			for (RumBarrel barrel : barrels)
+        			{
+        				int distanceOpponent = opponentShip.bow().distanceTo(barrel.position);
+        				boolean orderFire = false;
+        				for (Ship myShip : ships)
+        				{
+        					if (myShip.owner != idPlayer) continue;
+        					if (distanceOpponent < myShip.bow().distanceTo(barrel.position)) orderFire = true;
+        				}
+        				if (orderFire == true) fireTargets.add(barrel.position);
+        			}
+        		}
+        	}
+        	return fireTargets;
+        }
+        
+
+	    protected String[] makeDecision(Referee referee, int idPlayer)
+	    {
+	    	this.computeFireTargets(referee.ships, referee.mines, referee.barrels, 1);
+        	String[] move = new String[depth * 3 + 1];
+        	int iShip = 0;
+            for (Ship ship : referee.ships)
             {
-				String command = "";
-				// Interresting target to fire
-				List<Coord> fireTargets = player.computeFireTargets(ships, mines, barrels);
-				if (barrels.size() != 0) // Moving in order to restore health
-				{
-					ship.target = ship.closestBarrel(barrels).position;
-					command =  "MOVE " + ship.target.x + " " + ship.target.y;
-					
-					if (ship.lastCommand.equals(command) && ship.cannonCooldown == 0 && ship.speed != 0)
-					{
-						for (Coord fireTarget : fireTargets)
+            	if (ship.owner != idPlayer) continue;
+            	String currentMove = "";
+            	if (ship.health < 80) // Go restore health
+            	{
+                    if (referee.barrels.size() != 0)
+                    {
+                        ship.target = ship.closestBarrel(referee.barrels).position;
+                    }
+                    else if (ship.position.x == ship.target.x && ship.position.y == ship.target.y)
+                    {
+                        ship.target = new Coord(referee.random.nextInt(MAP_WIDTH),referee.random.nextInt(MAP_HEIGHT));
+                    }
+                    currentMove = "MOVE " + ship.target.x + " " + ship.target.y;
+            	}
+            	else // Go attack opponents
+            	{
+                	int minDistance = 99;
+                	Coord closestOpponentShip = null;
+                	Coord closestFireTarget = null;
+                	for (Coord target : this.fireTargets)
+                	{
+						int distance = ship.bow().distanceTo(target);
+						if (distance < minDistance) 
 						{
-							int distance = ship.bow().distanceTo(fireTarget);
-							if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX)
-							{
-								command = "FIRE " + fireTarget.x + " " + fireTarget.y;
-								break;
-							}
+							minDistance = distance;
+						}
+						if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0 && distance <= minDistance)
+						{
+							closestFireTarget = target;
 						}
 					}
-				}
-				else if (FIRE_DISTANCE_MAX < ship.bow().distanceTo(fireTargets.get(0)) && ship.cannonCooldown == 0) // Battle mode: Out of range
-				{
-					command = "MOVE " + fireTargets.get(0).x + " " + fireTargets.get(0).y;
-				}
-				else if (ship.cannonCooldown == 0)
-				{
-					command = "FIRE " + fireTargets.get(0).x + " " + fireTargets.get(0).y;
-				}
-				// else esquive ?
-				
-
-			
-                if (command == "") command = "WAIT";
-				ship.lastCommand = command;
-                System.out.println(ship.lastCommand);
+                	if (closestFireTarget != null)
+                	{
+                		currentMove = "FIRE " + closestFireTarget.x + " " + closestFireTarget.y;
+                	}
+            	}
+                if (currentMove == "") currentMove = "WAIT";
+                iShip++;
+                move[iShip] = currentMove;
             }
-        }
-    }
+            return move;
+	    }
+	    
+	    protected Solution heuristicSimulation(int depth, Referee referee)
+	    {
+	    	int idPlayer = 1;
+	    	referee.save();
+	    	Solution heuristicSolution = new Solution(referee, idPlayer);
+	    	for (int iDepth = 0; iDepth < depth; iDepth++)
+	    	{
+				String[] outputTurn = this.makeDecision(referee, idPlayer);
+				try {
+					referee.handlePlayerOutput(1, 1, 1, outputTurn);
+				} catch (WinException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				} catch (LostException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				} catch (InvalidInputException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
+				}
+	    		referee.prepare(1);
+				try
+                {
+					referee.updateGame(1);
+                }
+                catch (GameOverException e)
+                {
+                	e.printStackTrace();
+                }
+				for (Ship ship : referee.ships)
+				{
+					if (ship.owner != idPlayer) continue;
+					if (heuristicSolution.shipMoves.containsKey(ship))
+					{
+						heuristicSolution.shipMoves.get(ship).addAll(Arrays.asList(outputTurn));
+					}
+					else
+					{
+						heuristicSolution.shipMoves.put(ship, Arrays.asList(outputTurn));
+					}
+				}
+				heuristicSolution.score[iDepth] = referee.eval(idPlayer);
+				heuristicSolution.sumScore += heuristicSolution.score[iDepth];
+	    	}
+	    	referee.load();
+	    	return heuristicSolution;
+	    }
+	    
+	    public void mutate()
+	    {
+	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet()) {
+	    	    Ship key = entry.getKey();
+	    	    List<String> value = entry.getValue();
+	    	    
+	    	    for (int i = 0; i < value.size(); ++i)
+	    	    {
+	    	    	if (rand.nextBoolean())
+	    	    	{
+	    	    		value.set(i, randomAction(key));
+	    	    	}
+	    	    }
+	    	    this.shipMoves.put(key, value);
+	    	}
+	    }
+	    
+	    public void randomize()
+	    {
+	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet()) {
+	    	    Ship key = entry.getKey();
+	    	    List<String> value = entry.getValue();
+	    	    
+	    	    for (int i = 0; i < depth; ++i)
+	    	    {
+	    	    	value.add(randomAction(key));
+	    	    }
+	    	    this.shipMoves.put(key, value);
+	    	}
+	    }
+	    public String randomAction(Ship ship)
+	    {
+	    	int countCommand;
+	    	if (LEAGUE_LEVEL == 0) countCommand = 1;
+	    	else if (LEAGUE_LEVEL == 1 || LEAGUE_LEVEL == 2) countCommand = 3;
+	    	else countCommand = 7;
+	    	
+	    	switch(rand.nextInt(countCommand))
+	        {
+	        case 0: return "WAIT";
+	        case 1: return "MINE";	        
+	        case 2:
+	        {
+	        	int x = -11; int y = -11; Coord fireTarget;
+	        	do
+	        	{
+	        		x = rand.nextInt(11);
+		        	y = -10 + rand.nextInt(21);
+		        	fireTarget = new Coord(ship.position.x + x, ship.position.y + y);
+	        	} while (FIRE_DISTANCE_MAX < Math.abs(x + y) || !fireTarget.isInsideMap());
+	        	return "FIRE " + fireTarget.x + " " + fireTarget.y;
+	        }
+	    	case 3: return "SLOWER";
+	        case 4: return "FASTER";
+	        case 5: return "PORT";
+	        case 6: return "STARBOARD";
+
+	        }
+	    	return "";
+	    }
+	    
+	    public Solution merge(Solution solution)
+	    {
+	    	Solution mergeSolution = new Solution();
+	    	for (int i = 0; i < depth; ++i)
+	    	{
+	    		if (rand.nextBoolean())
+	    		{
+			    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet()) {
+			    	    Ship key = entry.getKey();
+			    	    List<String> value = entry.getValue();
+		    			value.set(i, solution.shipMoves.get(key).get(i));
+		    		}
+	    		}
+	    		else
+	    		{
+			    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet()) {
+			    	    Ship key = entry.getKey();
+			    	    List<String> value = entry.getValue();
+		    			value.set(i, this.shipMoves.get(key).get(i));
+		    		}
+	    		}
+	    	}
+	    	return mergeSolution;
+	    }
+	    
+	    public void eval(Referee referee, int playerIdx)
+	    {
+	    	referee.save();
+    		for (int i = 0; i < this.depth; i++)
+    		{
+    			int j = 0;
+        		String[] outputs = new String[this.shipCount];
+    	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
+    	    	{
+    	    	    Ship key = entry.getKey();
+    	    	    List<String> value = entry.getValue();
+    	    	    
+    	    	    outputs[j] = value.get(i);
+    	    		j++;
+    	    	}
+	    	    try {
+					referee.handlePlayerOutput(i, i, playerIdx, outputs);
+				} catch (WinException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (LostException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (InvalidInputException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+	    	    this.score[i] = referee.eval(playerIdx);
+	    	    this.sumScore += this.score[i];
+    		}
+	    	referee.load();
+	    }
+	    
+	    public void outputMove()
+	    {
+	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
+	    	{
+	    	    List<String> value = entry.getValue();
+	    	    
+	    	    String output = value.get(0);
+	    	    System.out.println(output);
+	    	}
+	    }
+	    
+	    public void display()
+	    {
+	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
+	    	{
+	    	    Ship key = entry.getKey();
+	    	    List<String> value = entry.getValue();
+	    	    System.err.println("Printing ship: " + key.toViewString());
+	    	    for (String val : value)
+	    	    {
+	    	    	System.err.println(val);
+	    	    }
+	    	}
+    	    System.err.println("sumScore: " + this.sumScore);
+	    }
+	}
 }
+
 
 class Player {
 
@@ -1673,10 +1995,10 @@ class Player {
 			// Initialize a random game
             Properties prop = currentBoard.getConfiguration();
             currentBoard.initEmptyReferee(2, prop);
-
             int gameTurn = 1;
             // game loop
 			int saveCountOpponentShips = 99; // save the last number of ships
+
             while (gameTurn < 401) {
             	
             	if (gameTurn != 1)
@@ -1720,16 +2042,51 @@ class Player {
 				
 				if (saveCountOpponentShips != opponentShips.size()) // Opponent ship lost
 				{
-					System.err.println("saveCount: " + saveCountOpponentShips + " opponentShips: " + opponentShips.size());
 					saveCountOpponentShips = opponentShips.size();
 					// check if the simulation removed the ship, it can explode with mines that were never seen
 					currentBoard.checkShipRemoved(opponentShips);
 				}
 				
-				currentBoard.displayEntities();
-                // my decision
-
-				currentBoard.makeDecision(1);
+                // simulation starts
+				int idPlayer = 1;
+	            Referee.Solution bestSolution = new Referee.Solution(currentBoard, idPlayer);
+	            bestSolution.randomize();
+	            bestSolution.eval(currentBoard, idPlayer);
+	            for (int iWidth = 0; iWidth < 3; iWidth++)
+	            {
+					Referee.Solution solution = new Referee.Solution(currentBoard, idPlayer);
+	            	solution.randomize();
+					solution.eval(currentBoard, idPlayer);
+					if (bestSolution.sumScore <= solution.sumScore)
+					{
+						bestSolution = solution;
+					}
+	            }
+	            
+	            for (int amplitude = 0; amplitude < 3; amplitude++)
+	            {
+					Referee.Solution solution = new Referee.Solution(bestSolution);
+					solution.display();
+					solution.mutate();
+					solution.eval(currentBoard, idPlayer);
+					if (bestSolution.sumScore <= solution.sumScore)
+					{
+						bestSolution = solution;
+					}
+	            }
+	            
+	            // simulation heuristic
+	            Referee.Solution heuristicSolution = new Referee.Solution(currentBoard, idPlayer);
+	            heuristicSolution.heuristicSimulation(heuristicSolution.depth, currentBoard);
+				
+	            if (bestSolution.sumScore <= heuristicSolution.sumScore)
+	            {
+	            	bestSolution = heuristicSolution;
+	            }
+	            
+				// output bestSolution
+				bestSolution.outputMove();
+				
             	gameTurn++;
             }
 		} 
