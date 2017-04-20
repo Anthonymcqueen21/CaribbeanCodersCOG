@@ -1745,12 +1745,14 @@ class Referee implements Serializable {
             for (Ship ship : referee.ships)
             {
             	if (ship.owner != idPlayer) continue;
-            	String currentMove = "";
+            	String currentMove = "WAIT";
                 if (referee.barrels.size() != 0)
                 {
                     ship.target = ship.closestBarrel(referee.barrels).position;
                     currentMove = "MOVE " + ship.target.x + " " + ship.target.y;
                 }
+                System.err.println("ship.lastCommand " + ship.lastCommand);
+                System.err.println("currentMove " + currentMove);
                 if (this.fireTargets.size() == 0 || ship.lastCommand.equals(currentMove)) // Go attack opponents
             	{
                 	for (Coord target : this.fireTargets)
@@ -1763,7 +1765,7 @@ class Referee implements Serializable {
 						}
 					}
             	}
-                if (currentMove == "") currentMove = "WAIT";
+                ship.lastCommand = currentMove;
                 move[iShip] = currentMove;
                 iShip++;
             }
@@ -1915,7 +1917,11 @@ class Referee implements Serializable {
 	    	    {
 		    	    String output = value.get(0);
 		    	    outputTurn[iOutput] = output; iOutput++;
-		    	    key.lastCommand = output;
+		    	    for (Ship ship : referee.ships)
+		    	    {
+		    	    	if (ship.owner != idPlayer) continue;
+		    	    	else ship.lastCommand = output;
+		    	    }
 		    	    System.out.println(output);
 	    	    }
 	    	}
