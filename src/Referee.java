@@ -1511,7 +1511,6 @@ class Referee implements Serializable {
     
     protected void displayEntities()
     {
-    	/*
         System.err.println("ShipsAlive");
         for (Player player : this.players)
         {
@@ -1527,19 +1526,16 @@ class Referee implements Serializable {
         {
             System.err.println(barrel.toViewString());
         }
-        */
         System.err.println("Cannonball");
         for (Cannonball cannonball : cannonballs)
         {
             System.err.println(cannonball.toViewString());
         }
-        /*
         System.err.println("Mines");
         for (Mine mine : this.mines)
         {
             System.err.println(mine.toViewString());
         }
-        */
     }
 	
 	protected void checkShipRemoved(List<String> opponentShips)
@@ -1618,7 +1614,6 @@ class Referee implements Serializable {
 						int srcX = srcShip.position.x;
 						int srcY = srcShip.position.y;
 						Cannonball cannonball = new Cannonball(x, y, arg1, srcX, srcY, arg2);
-						System.err.println("Adding cannonball");
 						this.cannonballs.add(cannonball);
 						break;
 					}
@@ -1746,14 +1741,17 @@ class Referee implements Serializable {
             {
             	if (ship.owner != idPlayer) continue;
             	String currentMove = "WAIT";
-                if (referee.barrels.size() != 0)
-                {
-                    ship.target = ship.closestBarrel(referee.barrels).position;
+            	if (referee.barrels.size() != 0)
+            	{
+                    RumBarrel rum = ship.closestBarrel(referee.barrels);
+                    ship.target = rum.position;
                     currentMove = "MOVE " + ship.target.x + " " + ship.target.y;
-                }
-                System.err.println("ship.lastCommand " + ship.lastCommand);
-                System.err.println("currentMove " + currentMove);
-                if (this.fireTargets.size() == 0 || ship.lastCommand.equals(currentMove)) // Go attack opponents
+            	}
+            	if (ship.speed == 0)
+            	{
+            		currentMove = "MOVE " + rand.nextInt(MAP_WIDTH) + " " + rand.nextInt(MAP_HEIGHT);
+            	}
+            	else
             	{
                 	for (Coord target : this.fireTargets)
                 	{
@@ -1931,7 +1929,11 @@ class Referee implements Serializable {
 	    	}
 	    	catch (Exception e)
 	    	{
-	    		System.out.println("WAIT");
+	    		for (int i = 0; i < this.shipMoves.entrySet().size(); i++)
+	    		{
+	    			System.err.println("i: " + i);
+	    			System.out.println("WAIT");
+	    		}
 	    		System.err.println(e);
 	    	}
 	    	referee.displayEntities();
@@ -2005,7 +2007,7 @@ class Player implements Serializable {
 					// check if the simulation removed the ship, it can explode with mines that were never seen
 					currentBoard.checkShipRemoved(opponentShips);
 				}
-				
+				currentBoard.displayEntities();
 				int idPlayer = 1;
 				
 				// Deep copy of the board in order to use it for simulation
