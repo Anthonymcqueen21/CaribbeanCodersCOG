@@ -1,7 +1,12 @@
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.PrintStream;
 import java.io.PrintWriter;
+import java.io.Serializable;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.ArrayList;
@@ -21,14 +26,53 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.io.*;
+import java.util.*;
+import java.awt.*;
+class ObjectCloner
+{
+   // so that nobody can accidentally create an ObjectCloner object
+   private ObjectCloner(){}
+   // returns a deep copy of an object
+   static public Object deepCopy(Object oldObj) throws Exception
+   {
+      ObjectOutputStream oos = null;
+      ObjectInputStream ois = null;
+      try
+      {
+         ByteArrayOutputStream bos = 
+               new ByteArrayOutputStream(); // A
+         oos = new ObjectOutputStream(bos); // B
+         // serialize and pass the object
+         oos.writeObject(oldObj);   // C
+         oos.flush();               // D
+         ByteArrayInputStream bin = 
+               new ByteArrayInputStream(bos.toByteArray()); // E
+         ois = new ObjectInputStream(bin);                  // F
+         // return the new object
+         return ois.readObject(); // G
+      }
+      catch(Exception e)
+      {
+         System.out.println("Exception in ObjectCloner = " + e);
+         throw(e);
+      }
+      finally
+      {
+         oos.close();
+         ois.close();
+      }
+   }
+   
+}
 
-class LostException extends Exception {
+class LostException extends Exception implements Serializable {
     public LostException(String message) {
         super(message);
     }
 }
 
-class InvalidInputException extends Exception {
+class InvalidInputException extends Exception implements Serializable {
     public InvalidInputException(String message) {
         super(message);
     }
@@ -37,26 +81,25 @@ class InvalidInputException extends Exception {
     }
 }
 
-class InvalidFormatException extends Exception {
+class InvalidFormatException extends Exception implements Serializable {
     public InvalidFormatException(String message) {
         super(message);
     }
 }
 
-class GameOverException extends Exception {
+class GameOverException extends Exception implements Serializable {
     public GameOverException(String message) {
         super(message);
     }
 }
 
-class WinException extends Exception {
+class WinException extends Exception implements Serializable {
     public WinException(String message) {
         super(message);
     }
 }
 
-
-class Referee {
+class Referee implements Serializable {
     private static final int LEAGUE_LEVEL = 1;
 
     private static final int MAP_WIDTH = 23;
@@ -141,7 +184,7 @@ class Referee {
         return Stream.of(v).map(String::valueOf).collect(Collectors.joining(" "));
     }
 
-    public static class Coord {
+    public static class Coord implements Serializable {
         private final static int[][] DIRECTIONS_EVEN = new int[][] { { 1, 0 }, { 0, -1 }, { -1, -1 }, { -1, 0 }, { -1, 1 }, { 0, 1 } };
         private final static int[][] DIRECTIONS_ODD = new int[][] { { 1, 0 }, { 1, -1 }, { 0, -1 }, { -1, 0 }, { 0, 1 }, { 1, 1 } };
         private final int x;
@@ -212,7 +255,7 @@ class Referee {
         }
     }
 
-    public static class CubeCoordinate {
+    public static class CubeCoordinate implements Serializable {
         static int[][] directions = new int[][] { { 1, -1, 0 }, { +1, 0, -1 }, { 0, +1, -1 }, { -1, +1, 0 }, { -1, 0, +1 }, { 0, -1, +1 } };
         int x, y, z;
 
@@ -221,7 +264,7 @@ class Referee {
             this.y = y;
             this.z = z;
         }
-
+        
         Coord toOffsetCoordinate() {
             int newX = x + (z - (z & 1)) / 2;
             int newY = z;
@@ -250,7 +293,7 @@ class Referee {
         SHIP, BARREL, MINE, CANNONBALL
     }
 
-    public static abstract class Entity {
+    public static abstract class Entity implements Serializable {
         private static int UNIQUE_ENTITY_ID = 0;
 
         protected final int id;
@@ -270,7 +313,7 @@ class Referee {
             this.type = type;
             this.position = new Coord(x, y);
         }
-		
+      
 		public int getId()
 		{
 			return this.id;
@@ -285,11 +328,11 @@ class Referee {
         }
     }
 
-    public static class Mine extends Entity {
+    public static class Mine extends Entity implements Serializable {
         public Mine(int x, int y) {
             super(EntityType.MINE, x, y);
         }
-
+        
         public String toPlayerString(int playerIdx) {
             return toPlayerString(0, 0, 0, 0);
         }
@@ -336,7 +379,7 @@ class Referee {
         }
     }
 
-    public static class Cannonball extends Entity {
+    public static class Cannonball extends Entity implements Serializable {
         final int ownerEntityId;
         final int srcX;
         final int srcY;
@@ -360,7 +403,7 @@ class Referee {
         }
     }
 
-    public static class RumBarrel extends Entity {
+    public static class RumBarrel extends Entity implements Serializable {
         private int health;
 
         public RumBarrel(int x, int y, int health) {
@@ -377,7 +420,7 @@ class Referee {
         }
     }
 
-    public static class Damage {
+    public static class Damage implements Serializable {
         private final Coord position;
         private final int health;
         private final boolean hit;
@@ -387,7 +430,7 @@ class Referee {
             this.health = health;
             this.hit = hit;
         }
-
+        
         public String toViewString() {
             return join(position.y, position.x, health, (hit ? 1 : 0));
         }
@@ -397,7 +440,7 @@ class Referee {
         FASTER, SLOWER, PORT, STARBOARD, FIRE, MINE
     }
 
-    public static class Ship extends Entity {
+    public static class Ship extends Entity implements Serializable {
         int orientation;
         int speed;
         int health;
@@ -414,7 +457,7 @@ class Referee {
         public Coord newBowCoordinate;
         public Coord newSternCoordinate;
         
-        // WARNING ENTITYID MUST BE UNIQUE
+        // WARNING ENTITYID MUST BE UNIQUE (except for save)
         public Ship(int entityId, int x, int y, int orientation, int owner) {
             super(entityId, EntityType.SHIP, x, y);
             this.orientation = orientation;
@@ -694,15 +737,15 @@ class Referee {
         }
     }
 
-    private static class Player {
+    private static class Player implements Serializable {
         private int id;
         private List<Ship> ships;
         private List<Ship> shipsAlive;
 
         public Player(int id) {
             this.id = id;
-            this.ships = new ArrayList<>();
-            this.shipsAlive = new ArrayList<>();
+            this.ships = new ArrayList<Ship>();
+            this.shipsAlive = new ArrayList<Ship>();
         }
         
         public void setDead() {
@@ -748,55 +791,6 @@ class Referee {
     private int mineCount;
     private int barrelCount;
     private Random random;
-
-    // variables used for saving/loading back previous stats of the game
-    private long saveSeed;
-    private List<Cannonball> saveCannonballs;
-    private List<Mine> saveMines;
-    private List<RumBarrel> saveBarrels;
-    private List<Player> savePlayers;
-    private List<Ship> saveShips;
-    private List<Damage> saveDamage;
-    private List<Ship> saveShipLosts;
-    private List<Coord> saveCannonBallExplosions;
-    private int saveShipsPerPlayer;
-    private int saveMineCount;
-    private int saveBarrelCount;
-    private Random saveRandom;
-
-    public void save()
-    {
-        this.saveSeed = this.seed;
-        this.saveCannonballs = this.cannonballs;
-        this.saveMines = this.mines;
-        this.saveBarrels = this.barrels;
-        this.savePlayers = this.players;
-        this.saveShips = this.ships;
-        this.saveDamage = this.damage;
-        this.saveShipLosts = this.shipLosts;
-        this.saveCannonBallExplosions = this.cannonBallExplosions;
-        this.saveShipsPerPlayer = this.shipsPerPlayer;
-        this.saveMineCount = this.mineCount;
-        this.saveBarrelCount = this.barrelCount;
-        this.saveRandom = this.random;
-    }
-
-    public void load()
-    {
-        this.seed = this.saveSeed;
-        this.cannonballs = this.saveCannonballs;
-        this.mines = this.saveMines;
-        this.barrels = this.saveBarrels;
-        this.players = this.savePlayers;
-        this.ships = this.saveShips;
-        this.damage = this.saveDamage;
-        this.shipLosts = this.saveShipLosts;
-        this.cannonBallExplosions = this.saveCannonBallExplosions;
-        this.shipsPerPlayer = this.saveShipsPerPlayer;
-        this.mineCount = this.saveMineCount;
-        this.barrelCount = this.saveBarrelCount;
-        this.random = this.saveRandom;
-    }
 
     public Referee(InputStream is, PrintStream out, PrintStream err) throws IOException {
         // super(is, out, err);
@@ -931,9 +925,15 @@ class Referee {
             }
         }
         barrelCount = barrels.size();
-
+        
+        this.ships = new ArrayList<>();
+        this.mines = new ArrayList<>();
+        this.barrels = new ArrayList<>();
+        this.damage = new ArrayList<>();
+        for (int i = 0; i < playerCount; i++) {
+            this.players.add(new Player(i));
+        }
     }
-
 
     protected Properties getConfiguration() {
         Properties prop = new Properties();
@@ -1511,12 +1511,13 @@ class Referee {
     
     protected void displayEntities()
     {
+    	/*
         System.err.println("ShipsAlive");
         for (Player player : this.players)
         {
-        	System.err.println("Player: " + player.id);
             for (Ship shipAlive : player.shipsAlive)
             {
+        	    System.err.println("Player: " + player.id);
                 System.err.println(shipAlive.toViewString());
             }
             
@@ -1526,16 +1527,19 @@ class Referee {
         {
             System.err.println(barrel.toViewString());
         }
+        */
         System.err.println("Cannonball");
         for (Cannonball cannonball : cannonballs)
         {
             System.err.println(cannonball.toViewString());
         }
+        /*
         System.err.println("Mines");
         for (Mine mine : this.mines)
         {
             System.err.println(mine.toViewString());
         }
+        */
     }
 	
 	protected void checkShipRemoved(List<String> opponentShips)
@@ -1599,7 +1603,7 @@ class Referee {
 			boolean foundElement = false;
 			for (Cannonball cannonball : cannonballs)
 			{
-				if (cannonball.position.x == x && cannonball.position.y == y && cannonball.remainingTurns == arg2 && cannonball.ownerEntityId == arg1) 
+				if (cannonball.position.x == x && cannonball.position.y == y && cannonball.remainingTurns== arg2 &&  cannonball.ownerEntityId == arg1) 
 				{
 					foundElement = true;
 					break;
@@ -1614,6 +1618,7 @@ class Referee {
 						int srcX = srcShip.position.x;
 						int srcY = srcShip.position.y;
 						Cannonball cannonball = new Cannonball(x, y, arg1, srcX, srcY, arg2);
+						System.err.println("Adding cannonball");
 						this.cannonballs.add(cannonball);
 						break;
 					}
@@ -1636,10 +1641,18 @@ class Referee {
 				Mine m = new Mine(x, y);
                 this.mines.add(m);
             }
-        }
+        } 
+    }
+    
+    // One turn careful need saving and loading
+    protected void apply(int idPlayer, String[] outputs) throws WinException, LostException, InvalidInputException, GameOverException
+    {
+		this.prepare(1);
+		this.handlePlayerOutput(1, 1, idPlayer, outputs);
+		this.updateGame(1);
     }
 
-	public static class Solution
+	public static class Solution implements Serializable
 	{
 		int shipCount;
 		Map<Ship, List<String>> shipMoves;
@@ -1687,18 +1700,6 @@ class Referee {
 	    	this.sumScore = 0;
             this.fireTargets = new ArrayList<Coord>();
 	    }
-	    
-	    public Solution(Solution solution)
-	    {
-			this.shipCount = solution.shipCount;
-			this.shipMoves= solution.shipMoves;
-			this.rand = solution.rand;
-			this.score = solution.score;
-			this.sumScore = solution.sumScore;
-			this.depth = solution.depth;
-            this.fireTargets = new ArrayList<Coord>();
-	    }
-	    
 
         public List<Coord> computeFireTargets(List<Ship> ships, List<Mine> mines, List<RumBarrel> barrels, int idPlayer)
         {
@@ -1738,100 +1739,64 @@ class Referee {
 
 	    protected String[] makeDecision(Referee referee, int idPlayer)
 	    {
-	    	this.computeFireTargets(referee.ships, referee.mines, referee.barrels, 1);
-        	String[] move = new String[depth * 3 + 1];
+	    	this.fireTargets = this.computeFireTargets(referee.ships, referee.mines, referee.barrels, 1);
+        	String[] move = new String[referee.players.get(idPlayer).shipsAlive.size()];
         	int iShip = 0;
             for (Ship ship : referee.ships)
             {
             	if (ship.owner != idPlayer) continue;
             	String currentMove = "";
-            	if (ship.health < 80) // Go restore health
-            	{
-                    if (referee.barrels.size() != 0)
-                    {
-                        ship.target = ship.closestBarrel(referee.barrels).position;
-                    }
-                    else if (ship.position.x == ship.target.x && ship.position.y == ship.target.y)
-                    {
-                        ship.target = new Coord(referee.random.nextInt(MAP_WIDTH),referee.random.nextInt(MAP_HEIGHT));
-                    }
+                if (referee.barrels.size() != 0)
+                {
+                    ship.target = ship.closestBarrel(referee.barrels).position;
                     currentMove = "MOVE " + ship.target.x + " " + ship.target.y;
-            	}
-            	else // Go attack opponents
+                }
+                if (this.fireTargets.size() == 0 || ship.lastCommand.equals(currentMove)) // Go attack opponents
             	{
-                	int minDistance = 99;
-                	Coord closestOpponentShip = null;
-                	Coord closestFireTarget = null;
                 	for (Coord target : this.fireTargets)
                 	{
 						int distance = ship.bow().distanceTo(target);
-						if (distance < minDistance) 
+						if (target.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0)
 						{
-							minDistance = distance;
-						}
-						if (ship.position.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0 && distance <= minDistance)
-						{
-							closestFireTarget = target;
+	                		currentMove = "FIRE " + target.x + " " + target.y;
+	                		break;
 						}
 					}
-                	if (closestFireTarget != null)
-                	{
-                		currentMove = "FIRE " + closestFireTarget.x + " " + closestFireTarget.y;
-                	}
             	}
                 if (currentMove == "") currentMove = "WAIT";
-                iShip++;
                 move[iShip] = currentMove;
+                iShip++;
             }
             return move;
 	    }
 	    
-	    protected Solution heuristicSimulation(int depth, Referee referee)
+	    protected void heuristicSimulation(int depth, Referee referee)
 	    {
 	    	int idPlayer = 1;
-	    	referee.save();
-	    	Solution heuristicSolution = new Solution(referee, idPlayer);
 	    	for (int iDepth = 0; iDepth < depth; iDepth++)
 	    	{
-				String[] outputTurn = this.makeDecision(referee, idPlayer);
-				try {
-					referee.handlePlayerOutput(1, 1, 1, outputTurn);
-				} catch (WinException e1) {
-					// TODO Auto-generated catch block
-					e1.printStackTrace();
-				} catch (LostException e1) {
-					// TODO Auto-generated catch block
-					e1.printStackTrace();
-				} catch (InvalidInputException e1) {
-					// TODO Auto-generated catch block
-					e1.printStackTrace();
-				}
-	    		referee.prepare(1);
-				try
-                {
-					referee.updateGame(1);
-                }
-                catch (GameOverException e)
-                {
-                	e.printStackTrace();
-                }
-				for (Ship ship : referee.ships)
-				{
-					if (ship.owner != idPlayer) continue;
-					if (heuristicSolution.shipMoves.containsKey(ship))
-					{
-						heuristicSolution.shipMoves.get(ship).addAll(Arrays.asList(outputTurn));
-					}
-					else
-					{
-						heuristicSolution.shipMoves.put(ship, Arrays.asList(outputTurn));
-					}
-				}
-				heuristicSolution.score[iDepth] = referee.eval(idPlayer);
-				heuristicSolution.sumScore += heuristicSolution.score[iDepth];
+	    		String[] outputTurn = this.makeDecision(referee, idPlayer);
+	    		try
+	    		{
+	                referee.apply(idPlayer, outputTurn);
+
+		            this.score[iDepth] = referee.eval(idPlayer);
+		            this.sumScore += this.score[iDepth];
+		            
+	                int iShip = 0;
+	    	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
+	    	    	{
+	    	    	    Ship key = entry.getKey();
+	    	    	    List<String> value = entry.getValue();
+	    	    	    value.add(outputTurn[iShip]);
+	    	    	    iShip++;
+	    	    	}
+	    		}
+	    		catch (Exception e)
+	    		{
+	    			System.err.println(e);
+	    		}
 	    	}
-	    	referee.load();
-	    	return heuristicSolution;
 	    }
 	    
 	    public void mutate()
@@ -1920,9 +1885,8 @@ class Referee {
 	    	return mergeSolution;
 	    }
 	    
-	    public void eval(Referee referee, int playerIdx)
+	    public void eval(Referee referee, int idPlayer)
 	    {
-	    	referee.save();
     		for (int i = 0; i < this.depth; i++)
     		{
     			int j = 0;
@@ -1935,33 +1899,36 @@ class Referee {
     	    	    outputs[j] = value.get(i);
     	    		j++;
     	    	}
-	    	    try {
-					referee.handlePlayerOutput(i, i, playerIdx, outputs);
-				} catch (WinException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (LostException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				} catch (InvalidInputException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-	    	    this.score[i] = referee.eval(playerIdx);
-	    	    this.sumScore += this.score[i];
+
     		}
-	    	referee.load();
 	    }
 	    
-	    public void outputMove()
+	    public void outputMove(Referee referee, int idPlayer)
 	    {
+	    	String[] outputTurn = new String[this.shipCount];
+	    	int iOutput = 0;
 	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
 	    	{
+	    	    Ship key = entry.getKey();
 	    	    List<String> value = entry.getValue();
-	    	    
-	    	    String output = value.get(0);
-	    	    System.out.println(output);
+	    	    if (value.size() != 0)
+	    	    {
+		    	    String output = value.get(0);
+		    	    outputTurn[iOutput] = output; iOutput++;
+		    	    key.lastCommand = output;
+		    	    System.out.println(output);
+	    	    }
 	    	}
+	    	try
+	    	{
+		    	referee.apply(idPlayer, outputTurn);
+	    	}
+	    	catch (Exception e)
+	    	{
+	    		System.out.println("WAIT");
+	    		System.err.println(e);
+	    	}
+	    	referee.displayEntities();
 	    }
 	    
 	    public void display()
@@ -1982,7 +1949,7 @@ class Referee {
 }
 
 
-class Player {
+class Player implements Serializable {
 
     public static void main(String args[]) {
         Scanner in = new Scanner(System.in);
@@ -2000,20 +1967,6 @@ class Player {
 			int saveCountOpponentShips = 99; // save the last number of ships
 
             while (gameTurn < 401) {
-            	
-            	if (gameTurn != 1)
-            	{
-                    currentBoard.prepare(1);
-    				try
-                    {
-                        currentBoard.updateGame(1);
-                    }
-                    catch (GameOverException e)
-                    {
-                    	e.printStackTrace();
-                    }
-            	}
-
                 // Update new inputs
                 int myShipCount = in.nextInt(); // the number of remaining ships
                 int entityCount = in.nextInt(); // the number of entities (e.g. ships, mines or cannonballs)
@@ -2047,16 +2000,27 @@ class Player {
 					currentBoard.checkShipRemoved(opponentShips);
 				}
 				
-                // simulation starts
 				int idPlayer = 1;
-	            Referee.Solution bestSolution = new Referee.Solution(currentBoard, idPlayer);
+				
+				// Deep copy of the board in order to use it for simulation
+				Referee saveBoard = null;
+				try {
+					saveBoard = (Referee)(ObjectCloner.deepCopy(currentBoard));
+				} catch (Exception e) {
+					System.err.println(e);
+				}
+
+                // simulation starts
+	            Referee.Solution bestSolution = new Referee.Solution(saveBoard, idPlayer);
+	            
+	            /*
 	            bestSolution.randomize();
-	            bestSolution.eval(currentBoard, idPlayer);
+	            bestSolution.eval(saveBoard, idPlayer);
 	            for (int iWidth = 0; iWidth < 3; iWidth++)
 	            {
-					Referee.Solution solution = new Referee.Solution(currentBoard, idPlayer);
+					Referee.Solution solution = new Referee.Solution(saveBoard, idPlayer);
 	            	solution.randomize();
-					solution.eval(currentBoard, idPlayer);
+					solution.eval(saveBoard, idPlayer);
 					if (bestSolution.sumScore <= solution.sumScore)
 					{
 						bestSolution = solution;
@@ -2066,27 +2030,26 @@ class Player {
 	            for (int amplitude = 0; amplitude < 3; amplitude++)
 	            {
 					Referee.Solution solution = new Referee.Solution(bestSolution);
-					solution.display();
 					solution.mutate();
-					solution.eval(currentBoard, idPlayer);
+					solution.eval(saveBoard, idPlayer);
 					if (bestSolution.sumScore <= solution.sumScore)
 					{
 						bestSolution = solution;
 					}
 	            }
-	            
+	            */
 	            // simulation heuristic
-	            Referee.Solution heuristicSolution = new Referee.Solution(currentBoard, idPlayer);
-	            heuristicSolution.heuristicSimulation(heuristicSolution.depth, currentBoard);
 				
+	            Referee.Solution heuristicSolution = new Referee.Solution(saveBoard, idPlayer);
+	            heuristicSolution.heuristicSimulation(4, saveBoard);
 	            if (bestSolution.sumScore <= heuristicSolution.sumScore)
 	            {
 	            	bestSolution = heuristicSolution;
 	            }
+	            bestSolution.display();
 	            
 				// output bestSolution
-				bestSolution.outputMove();
-				
+				bestSolution.outputMove(currentBoard, idPlayer);
             	gameTurn++;
             }
 		} 
