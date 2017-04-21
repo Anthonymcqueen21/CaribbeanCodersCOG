@@ -1514,28 +1514,32 @@ class Referee implements Serializable {
         System.err.println("ShipsAlive");
         for (Player player : this.players)
         {
+    	    System.err.println("Player: " + player.id);
             for (Ship shipAlive : player.shipsAlive)
             {
-        	    System.err.println("Player: " + player.id);
                 System.err.println(shipAlive.toViewString());
             }
             
         }
+        /*
         System.err.println("Barrels");
         for (RumBarrel barrel : this.barrels)
         {
             System.err.println(barrel.toViewString());
         }
+        
         System.err.println("Cannonball");
         for (Cannonball cannonball : cannonballs)
         {
             System.err.println(cannonball.toViewString());
         }
+        
         System.err.println("Mines");
         for (Mine mine : this.mines)
         {
             System.err.println(mine.toViewString());
         }
+        */
     }
 	
 	protected void checkShipRemoved(List<String> opponentShips)
@@ -1696,73 +1700,83 @@ class Referee implements Serializable {
             this.fireTargets = new ArrayList<Coord>();
 	    }
 
-        public List<Coord> computeFireTargets(List<Ship> ships, List<Mine> mines, List<RumBarrel> barrels, int idPlayer)
+        public boolean computeFireTargets(Referee referee, Ship ship, int idPlayer)
         {
-        	List<Coord> fireTargets = new ArrayList();
-        	for (Ship opponentShip : ships)
+        	int idOpponentPlayer = (idPlayer == 1) ? 0 : 1;        	
+        	for (Ship opponentShip : referee.players.get(idOpponentPlayer).shipsAlive)
         	{
-        		if (opponentShip.owner != idPlayer) // Opponent ship
-        		{
-        			// Attack the center of the ship
-        			fireTargets.add(opponentShip.position);
-        			
-        			// Destroy the mine if damage to the enemy
-        			for (Mine mine : mines)
+           		int newX; int newY;
+                if (opponentShip.position.y % 2 == 1) {
+                    newY = opponentShip.position.y + opponentShip.position.DIRECTIONS_ODD[opponentShip.orientation][1] * opponentShip.speed;
+                    newX = opponentShip.position.x + opponentShip.position.DIRECTIONS_ODD[opponentShip.orientation][0] * opponentShip.speed;
+                } else {
+                    newY = opponentShip.position.y + opponentShip.position.DIRECTIONS_EVEN[opponentShip.orientation][1] * opponentShip.speed;
+                    newX = opponentShip.position.x + opponentShip.position.DIRECTIONS_EVEN[opponentShip.orientation][0] * opponentShip.speed;
+                }
+        		int distance = ship.bow().distanceTo(new Coord(newX, newY));
+                int travelTime = (int) (1 + Math.round(distance / 3.0));
+                Coord fireTarget = new Coord(newX * travelTime, newY * travelTime);
+                
+                if (ship.bow().distanceTo(fireTarget) <= FIRE_DISTANCE_MAX)
+            	{
+                	ship.target = fireTarget;
+                	return true;
+            	}
+                else if (referee.mines.size() != 0)
+                {
+        			for (Mine mine : referee.mines)
         			{
-            			if (opponentShip.bow().distanceTo(mine.position) <= 1)
+            			if (opponentShip.bow().distanceTo(mine.position) <= 1 && ship.bow().distanceTo(mine.position) <= FIRE_DISTANCE_MAX)
             			{
-            				fireTargets.add(mine.position);
+            				ship.target = mine.position;
+            				return true;
             			}
         			}
+                }
+                else if (referee.barrels.size() != 0)
+                {
         			// Destroy the barrel which is closer to the opponent than our ships
-        			for (RumBarrel barrel : barrels)
+        			for (RumBarrel barrel : referee.barrels)
         			{
         				int distanceOpponent = opponentShip.bow().distanceTo(barrel.position);
-        				boolean orderFire = false;
-        				for (Ship myShip : ships)
+        				for (Ship myShip : referee.players.get(idPlayer).shipsAlive)
         				{
-        					if (myShip.owner != idPlayer) continue;
-        					if (distanceOpponent < myShip.bow().distanceTo(barrel.position)) orderFire = true;
+        					if (distanceOpponent < myShip.bow().distanceTo(barrel.position) && ship.bow().distanceTo(barrel.position) <= FIRE_DISTANCE_MAX)
+    						{
+        						myShip.target = barrel.position;
+        						return true;
+    						}
         				}
-        				if (orderFire == true) fireTargets.add(barrel.position);
         			}
-        		}
+                }
         	}
-        	return fireTargets;
+        	return false;
         }
         
 
 	    protected String[] makeDecision(Referee referee, int idPlayer)
 	    {
-	    	this.fireTargets = this.computeFireTargets(referee.ships, referee.mines, referee.barrels, 1);
-        	String[] move = new String[referee.players.get(idPlayer).shipsAlive.size()];
+        	int idOpponentPlayer = (idPlayer == 1) ? 0 : 1;
         	int iShip = 0;
-            for (Ship ship : referee.ships)
+        	String[] move = new String[referee.players.get(idPlayer).shipsAlive.size()];
+	    	for (Ship ship : referee.players.get(idPlayer).shipsAlive)
             {
-            	if (ship.owner != idPlayer) continue;
-            	String currentMove = "WAIT";
-            	if (referee.barrels.size() != 0)
+    			String currentMove = "WAIT";
+    			if (referee.barrels.size() != 0)
             	{
                     RumBarrel rum = ship.closestBarrel(referee.barrels);
-                    ship.target = rum.position;
-                    currentMove = "MOVE " + ship.target.x + " " + ship.target.y;
+                    currentMove = "MOVE " + rum.position.x + " " + rum.position.y;
             	}
-            	if (ship.speed == 0)
+            	if (currentMove.equals("WAIT") || ship.cannonCooldown == 0 && (ship.lastCommand.equals(currentMove) && referee.barrels.size() != 0))
+            	{
+                	boolean canShoot = this.computeFireTargets(referee, ship, idPlayer);
+            		if (canShoot == true && ship.bow().distanceTo(ship.target) <= FIRE_DISTANCE_MAX) currentMove = "FIRE " + ship.target.x + " " + ship.target.y;
+            	}
+            	else if (ship.speed != 0)
             	{
             		currentMove = "MOVE " + rand.nextInt(MAP_WIDTH) + " " + rand.nextInt(MAP_HEIGHT);
             	}
-            	else
-            	{
-                	for (Coord target : this.fireTargets)
-                	{
-						int distance = ship.bow().distanceTo(target);
-						if (target.isInsideMap() && distance <= FIRE_DISTANCE_MAX && ship.cannonCooldown == 0)
-						{
-	                		currentMove = "FIRE " + target.x + " " + target.y;
-	                		break;
-						}
-					}
-            	}
+
                 ship.lastCommand = currentMove;
                 move[iShip] = currentMove;
                 iShip++;
@@ -1775,9 +1789,9 @@ class Referee implements Serializable {
 	    	int idPlayer = 1;
 	    	for (int iDepth = 0; iDepth < depth; iDepth++)
 	    	{
-	    		String[] outputTurn = this.makeDecision(referee, idPlayer);
 	    		try
 	    		{
+		    		String[] outputTurn = this.makeDecision(referee, idPlayer);
 	                referee.apply(idPlayer, outputTurn);
 
 		            this.score[iDepth] = referee.eval(idPlayer);
@@ -1794,6 +1808,10 @@ class Referee implements Serializable {
 	    		}
 	    		catch (Exception e)
 	    		{
+	    	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
+	    	    	{
+	    	    		entry.getValue().add("WAIT");
+	    	    	}
 	    			System.err.println(e);
 	    		}
 	    	}
@@ -1903,7 +1921,7 @@ class Referee implements Serializable {
     		}
 	    }
 	    
-	    public void outputMove(Referee referee, int idPlayer)
+	    public String[] outputMove(Referee referee, int idPlayer)
 	    {
 	    	String[] outputTurn = new String[this.shipCount];
 	    	int iOutput = 0;
@@ -1923,20 +1941,7 @@ class Referee implements Serializable {
 		    	    System.out.println(output);
 	    	    }
 	    	}
-	    	try
-	    	{
-		    	referee.apply(idPlayer, outputTurn);
-	    	}
-	    	catch (Exception e)
-	    	{
-	    		for (int i = 0; i < this.shipMoves.entrySet().size(); i++)
-	    		{
-	    			System.err.println("i: " + i);
-	    			System.out.println("WAIT");
-	    		}
-	    		System.err.println(e);
-	    	}
-	    	referee.displayEntities();
+	    	return outputTurn;
 	    }
 	    
 	    public void display()
@@ -2007,7 +2012,8 @@ class Player implements Serializable {
 					// check if the simulation removed the ship, it can explode with mines that were never seen
 					currentBoard.checkShipRemoved(opponentShips);
 				}
-				currentBoard.displayEntities();
+				//System.err.println("After update vars");
+				//currentBoard.displayEntities();
 				int idPlayer = 1;
 				
 				// Deep copy of the board in order to use it for simulation
@@ -2049,15 +2055,24 @@ class Player implements Serializable {
 	            // simulation heuristic
 				
 	            Referee.Solution heuristicSolution = new Referee.Solution(saveBoard, idPlayer);
-	            heuristicSolution.heuristicSimulation(4, saveBoard);
+	            heuristicSolution.heuristicSimulation(1, saveBoard);
 	            if (bestSolution.sumScore <= heuristicSolution.sumScore)
 	            {
 	            	bestSolution = heuristicSolution;
 	            }
-	            bestSolution.display();
-	            
+	            //bestSolution.display();
 				// output bestSolution
-				bestSolution.outputMove(currentBoard, idPlayer);
+				String[] outputTurn = bestSolution.outputMove(currentBoard, idPlayer);
+		    	try
+		    	{
+			    	currentBoard.apply(idPlayer, outputTurn);
+		    	}
+		    	catch (Exception e)
+		    	{
+		    		System.err.println(e);
+		    	}
+				System.err.println("After update game");
+				currentBoard.displayEntities();
             	gameTurn++;
             }
 		} 
