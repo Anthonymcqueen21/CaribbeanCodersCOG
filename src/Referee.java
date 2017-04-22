@@ -171,8 +171,7 @@ class Referee implements Serializable {
     private static final Pattern PLAYER_INPUT_WAIT_PATTERN = Pattern.compile("WAIT(?:\\s+(?<message>.+))?", Pattern.CASE_INSENSITIVE);
     private static final Pattern PLAYER_INPUT_PORT_PATTERN = Pattern.compile("PORT(?:\\s+(?<message>.+))?", Pattern.CASE_INSENSITIVE);
     private static final Pattern PLAYER_INPUT_STARBOARD_PATTERN = Pattern.compile("STARBOARD(?:\\s+(?<message>.+))?", Pattern.CASE_INSENSITIVE);
-    private static final Pattern PLAYER_INPUT_FIRE_PATTERN = Pattern.compile("FIRE (?<x>[0-9]{1,8})\\s+(?<y>[0-9]{1,8})(?:\\s+(?<message>.+))?",
-            Pattern.CASE_INSENSITIVE);
+    private static final Pattern PLAYER_INPUT_FIRE_PATTERN = Pattern.compile("FIRE (?<x>-?[0-9]{1,8})\\s+(?<y>-?[0-9]{1,8})(?:\\s+(?<message>.+))?");
     private static final Pattern PLAYER_INPUT_MINE_PATTERN = Pattern.compile("MINE(?:\\s+(?<message>.+))?", Pattern.CASE_INSENSITIVE);
 
     public static int clamp(int val, int min, int max) {
@@ -447,7 +446,6 @@ class Referee implements Serializable {
         int initialHealth;
         int owner;
         String message;
-		String lastCommand;
         Action action;
         int mineCooldown;
         int cannonCooldown;
@@ -464,7 +462,6 @@ class Referee implements Serializable {
             this.speed = 0;
             this.health = health;
             this.owner = owner;
-			this.lastCommand = "";
         }
         
         public Ship(int x, int y, int orientation, int owner) {
@@ -473,7 +470,6 @@ class Referee implements Serializable {
             this.speed = 0;
             this.health = INITIAL_SHIP_HEALTH;
             this.owner = owner;
-			this.lastCommand = "";
         }
         
         public void update(int entityId, int x, int y, int orientation, int speed, int health, int owner)
@@ -485,6 +481,30 @@ class Referee implements Serializable {
                 this.speed = speed;
 				this.health = health;
         	}
+        }
+        
+
+        public Mine closestMine(List<Mine> mines) throws ExceptionInInitializerError
+        {
+            int minDistance = 99999;
+            if (0 < mines.size())
+            {
+                Mine closestMine = null;
+                for (Mine mine : mines)
+                {
+                    int distance = this.position.distanceTo(mine.position);
+                    if (distance < minDistance) 
+                    {
+                        minDistance = distance;
+                        closestMine = mine;
+                    }
+                }
+                return closestMine;
+            }
+            else
+            {
+                throw new ExceptionInInitializerError("No barrel left");
+            }
         }
         
 
@@ -1485,17 +1505,36 @@ class Referee implements Serializable {
 
     protected int eval(int idPlayer) {
     	int idOpponentPlayer = (idPlayer == 1) ? 0 : 1;
-    	int barrels = 0;
+    	int barrels = 0; int teamUp = 0;
     	if (this.barrels.size() != 0)
     	{
         	for (Ship ship : players.get(idPlayer).shipsAlive)
         	{
-        		int distance = ship.bow().distanceTo(ship.closestBarrel(this.barrels).position);
-        		barrels += 1 / distance;
+        		RumBarrel rum = ship.closestBarrel(this.barrels);
+        		int distance = ship.bow().distanceTo(rum.position);
+        		barrels += 10 / distance;
+        		if (distance == 1) barrels = 0;
         	}
     	}
-
-        return barrels + players.get(idPlayer).getScore() - players.get(idOpponentPlayer).getScore();
+    	if (1 < players.get(idPlayer).shipsAlive.size())
+    	{
+        	for (Ship ship1 : players.get(idPlayer).shipsAlive)
+        	{
+            	for (Ship ship2 : players.get(idPlayer).shipsAlive)
+            	{
+            		if (ship1.id == ship2.id) continue;
+            		int distance = ship1.position.distanceTo(ship2.position);
+            		if (distance == 1) teamUp -= 1 / distance;
+            	}
+        	}
+    	}
+    	int shotDone = 0;
+    	for (Ship ship : players.get(idPlayer).shipsAlive)
+    	{
+    		if (ship.cannonCooldown != 0) shotDone += 0.2;
+    	}
+    	
+        return shotDone + teamUp + barrels + players.get(idPlayer).getScore() - players.get(idOpponentPlayer).getScore();
     }
 
     protected String[] getGameSummary(int round) {
@@ -1679,62 +1718,49 @@ class Referee implements Serializable {
 	public static class Solution implements Serializable
 	{
 		int shipCount;
-		Map<Ship, List<String>> shipMoves;
-		Random rand = new Random();
+		List<String> shipMoves1;
+		List<String> shipMoves2;
+		List<String> shipMoves3;
+		Referee referee;
 		Integer[] score;
 		int sumScore;
 		int depth;
+		int idPlayer;
+		int idOpponentPlayer;
 		
 		// Heuristic
         List<Coord> fireTargets;
-		
-	    public Solution()
-	    {
-	    	this.depth = 0;
-	    	this.shipMoves = new HashMap<Ship, List<String>>();
-	    	this.score = new Integer[depth];
-	    	this.sumScore = -300;
-            this.fireTargets = new ArrayList<Coord>();
-	    }
-	    
-	    public Solution(List<Ship> myShips)
-	    {
-	    	this.depth = 3;
-	    	this.shipMoves = new HashMap<Ship, List<String>>();
-	    	for (Ship ship : myShips)
-	    	{
-	    		this.shipMoves.put(ship, new ArrayList<String>());
-	    	}
-	    	this.shipCount = myShips.size();
-	    	this.score = new Integer[depth];
-	    	this.sumScore = 0;
-            this.fireTargets = new ArrayList<Coord>();
-	    }
 	    
 	    public Solution(Referee referee, int playerId)
 	    {
 	    	this.depth = 3;
-	    	this.shipMoves = new HashMap<Ship, List<String>>();
-	    	for (Ship ship : referee.players.get(playerId).shipsAlive)
-	    	{
-	    		this.shipMoves.put(ship, new ArrayList<String>());
-	    	}
+	    	this.shipMoves1 = new ArrayList<String>();
+	    	this.shipMoves2 = new ArrayList<String>();
+	    	this.shipMoves3 = new ArrayList<String>();
 	    	this.shipCount = referee.players.get(playerId).shipsAlive.size();
 	    	this.score = new Integer[depth];
 	    	this.sumScore = 0;
             this.fireTargets = new ArrayList<Coord>();
+            this.referee = referee;
+            this.idPlayer = 1;
+            this.idOpponentPlayer = (idPlayer == 1) ? 0 : 1;
 	    }
 
-        public boolean computeFireTargets(Referee referee, Ship ship, int idPlayer)
+        public List<Coord> computeFireTargets(Ship ship)
         {
-        	int idOpponentPlayer = (idPlayer == 1) ? 0 : 1; int minDistanceTarget = 99;
+        	List<Coord> fireTargets = new ArrayList<Coord>();
         	for (Ship opponentShip : referee.players.get(idOpponentPlayer).shipsAlive)
         	{
         		int distance = ship.bow().distanceTo(opponentShip.position);
-        		if (distance < minDistanceTarget && distance <= FIRE_DISTANCE_MAX / 2)
+                int travelTime = (int) (1 + Math.round(distance / 3.0));
+        		if (travelTime <= 1)
         		{
-        			minDistanceTarget = distance; int newX; int newY;
-                    int travelTime = (int) (1 + Math.round(minDistanceTarget / 3.0));
+                    fireTargets.add(new Coord(opponentShip.position.x , opponentShip.position.y));
+                    return fireTargets;
+        		}
+        		else if (distance < FIRE_DISTANCE_MAX / 2)
+        		{
+        			int newX; int newY;
                     if (opponentShip.position.y % 2 == 1) {
                         newY = opponentShip.position.y + opponentShip.position.DIRECTIONS_ODD[opponentShip.orientation][1] * opponentShip.speed * travelTime;
                         newX = opponentShip.position.x + opponentShip.position.DIRECTIONS_ODD[opponentShip.orientation][0] * opponentShip.speed * travelTime;
@@ -1743,30 +1769,24 @@ class Referee implements Serializable {
                         newX = opponentShip.position.x + opponentShip.position.DIRECTIONS_EVEN[opponentShip.orientation][0] * opponentShip.speed * travelTime;
                     }
                     
-                    ship.target = new Coord(newX, newY);
+                    fireTargets.add(new Coord(newX, newY));
         		}
         	}
-        	if (minDistanceTarget != 99) return true;
-        	else if (LEAGUE_LEVEL < 3)
+        	if (fireTargets.size() == 0 && referee.mines.size() != 0)
         	{
-            	for (Mine mine : referee.mines)
-            	{
-            		int distance = ship.bow().distanceTo(mine.position);
-            		if (distance < minDistanceTarget && distance <= FIRE_DISTANCE_MAX)
-            		{
-            			ship.target = mine.position;
-            			return true;
-            		}
-            	}
+        		Mine closestMine = ship.closestMine(this.referee.mines);
+        		int distance = ship.bow().distanceTo(closestMine.position);
+        		if (1 < distance && distance <= FIRE_DISTANCE_MAX)
+        		{
+                    fireTargets.add(new Coord(closestMine.position.x, closestMine.position.y));
+        		}
         	}
-    	
-        	return false;
+        	return fireTargets;
         }
         
 
-	    protected String[] makeDecision(Referee referee, int idPlayer)
+	    protected String[] makeDecision(Referee referee)
 	    {
-        	int idOpponentPlayer = (idPlayer == 1) ? 0 : 1;
         	int iShip = 0;
         	String[] move = new String[referee.players.get(idPlayer).shipsAlive.size()];
 	    	for (Ship ship : referee.players.get(idPlayer).shipsAlive)
@@ -1779,10 +1799,9 @@ class Referee implements Serializable {
             	}
     			if (ship.cannonCooldown == 0)
             	{
-    				if (this.computeFireTargets(referee, ship, idPlayer)) currentMove = "FIRE " + ship.target.x + " " + ship.target.y;
+    				List<Coord> fireTargets = this.computeFireTargets(ship);
+    				if (fireTargets.size() != 0) currentMove = "FIRE " + fireTargets.get(0).x + " " + fireTargets.get(0).y;
             	}
-
-                ship.lastCommand = currentMove;
                 move[iShip] = currentMove;
                 iShip++;
             }
@@ -1796,27 +1815,31 @@ class Referee implements Serializable {
 	    	{
 	    		try
 	    		{
-		    		String[] outputTurn = this.makeDecision(referee, idPlayer);
+		    		String[] outputTurn = this.makeDecision(referee);
 	                referee.apply(idPlayer, outputTurn);
 
 		            this.score[iDepth] = referee.eval(idPlayer);
 		            this.sumScore += this.score[iDepth];
 		            
 	                int iShip = 0;
-	    	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
-	    	    	{
-	    	    	    Ship key = entry.getKey();
-	    	    	    List<String> value = entry.getValue();
-	    	    	    value.add(outputTurn[iShip]);
-	    	    	    iShip++;
-	    	    	}
+	                if (1 <= shipCount)
+	                {
+	                	shipMoves1.add(outputTurn[iShip]);
+	                	iShip++;
+	                }
+	                if (2 <= shipCount)
+	                {
+	                	shipMoves2.add(outputTurn[iShip]);
+	                	iShip++;
+	                }
+	                if (3 <= shipCount)
+	                {
+	                	shipMoves3.add(outputTurn[iShip]);
+	                	iShip++;
+	                }
 	    		}
 	    		catch (Exception e)
 	    		{
-	    	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
-	    	    	{
-	    	    		entry.getValue().add("WAIT");
-	    	    	}
 	    			System.err.println(e);
 	    		}
 	    	}
@@ -1824,91 +1847,100 @@ class Referee implements Serializable {
 	    
 	    public void mutate()
 	    {
-	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet()) {
-	    	    Ship key = entry.getKey();
-	    	    List<String> value = entry.getValue();
-	    	    
-	    	    for (int i = 0; i < this.depth; i++)
-	    	    {
-	    	    	if (rand.nextBoolean())
-	    	    	{
-	    	    		value.set(i, randomAction());
-	    	    	}
-	    	    }
-	    	}
+    	    for (int i = 0; i < depth; i++)
+    	    {
+                if (1 <= shipCount && referee.random.nextBoolean() && 1 <= this.referee.players.get(idPlayer).shipsAlive.size())
+                {
+                	shipMoves1.set(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(0)));
+                }
+                if (2 <= shipCount && referee.random.nextBoolean() && 2 <= this.referee.players.get(idPlayer).shipsAlive.size())
+                {
+                	shipMoves2.set(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(1)));
+                }
+                if (3 <= shipCount && referee.random.nextBoolean() && 3 <= this.referee.players.get(idPlayer).shipsAlive.size())
+                {
+                	shipMoves3.set(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(2)));
+                }
+    	    }
 	    }
 	    public void randomize()
 	    {
-	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet()) {
-	    	    Ship key = entry.getKey();
-	    	    List<String> value = entry.getValue();
-	    	    
-	    	    for (int i = 0; i < this.depth; i++)
-	    	    {
-	    	    	value.add(randomAction());
-	    	    }
-	    	    this.shipMoves.put(key, value);
-	    	}
+    	    for (int i = 0; i < this.depth; i++)
+    	    {
+                if (1 <= shipCount)
+                {
+                	shipMoves1.add(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(0)));
+                }
+                if (2 <= shipCount)
+                {
+                	shipMoves2.add(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(1)));
+                }
+                if (3 <= shipCount)
+                {
+                	shipMoves3.add(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(2)));
+                }
+    	    }
 	    }
-	    public String randomAction()
+
+	    public String randomAction(Ship ship)
 	    {
 	    	int countCommand;
 	    	if (LEAGUE_LEVEL == 0) countCommand = 0;
 	    	else if (LEAGUE_LEVEL == 1 || LEAGUE_LEVEL == 2) countCommand = 2;
-	    	else countCommand = 5;
+	    	else countCommand = 6;
 	    	
-	    	switch(rand.nextInt(countCommand))
-	        {
-	        case 0: return "WAIT";
-	    	case 1: return "SLOWER";
-	        case 2: return "FASTER";
-	        case 3: return "PORT";
-	        case 4: return "STARBOARD";
-	        }
-	    	return "";
-	    }
-	    
-	    public Solution merge(Solution solution)
-	    {
-	    	if (this.depth != solution.depth) return null;
-	    	Solution mergeSolution = new Solution();
-	    	for (int i = 0; i < this.depth; i++)
+	    	String move = "";
+	    	while (move == "")
 	    	{
-	    		if (rand.nextBoolean())
-	    		{
-			    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet()) {
-			    	    Ship key = entry.getKey();
-			    	    List<String> value = entry.getValue();
-		    			value.set(i, solution.shipMoves.get(key).get(i));
-		    		}
-	    		}
-	    		else
-	    		{
-			    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet()) {
-			    	    Ship key = entry.getKey();
-			    	    List<String> value = entry.getValue();
-		    			value.set(i, this.shipMoves.get(key).get(i));
-		    		}
-	    		}
+		    	int command = referee.random.nextInt(countCommand);
+		    	switch(command)
+		        {
+			        case 0: move = "WAIT"; break;
+			        case 1: {
+			        	if (ship.cannonCooldown == 0)
+			        	{
+				        	List<Coord> fireTargets = this.computeFireTargets(ship);
+				        	if (fireTargets.size() != 0)
+				        	{
+				        		int idFireTarget = referee.random.nextInt(fireTargets.size());
+				        		move = "FIRE " + fireTargets.get(idFireTarget).x + " " + fireTargets.get(idFireTarget).y;
+				        	}
+			        	}
+
+			        }
+			        break;
+			    	case 2: move = "SLOWER"; break;
+			        case 3: move = "FASTER"; break;
+			        case 4: move = "PORT"; break;
+			        case 5: move = "STARBOARD"; break;
+		        }	
 	    	}
-	    	return mergeSolution;
+	    	return move;
 	    }
 	    
-	    public void eval(Referee referee, int idPlayer)
+	    public void eval(int idPlayer)
 	    {
 	    	this.sumScore = 0;
     		for (int i = 0; i < this.depth; i++)
     		{
     			int j = 0;
         		String[] outputs = new String[referee.players.get(idPlayer).shipsAlive.size()];
-    	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
-    	    	{
-    	    		if (! (j < referee.players.get(idPlayer).shipsAlive.size())) continue;
-    	    	    Ship key = entry.getKey();
-    	    	    List<String> value = entry.getValue();
-    	    	    outputs[j] = value.get(i);
-    	    		j++;
-    	    	}
+        		
+                if (1 <= shipCount)
+                {
+                	outputs[j] = this.shipMoves1.get(i);
+                	j++;
+                }
+                if (2 <= shipCount)
+                {
+                	outputs[j] = this.shipMoves2.get(i);
+                	j++;
+                }
+                if (3 <= shipCount)
+                {
+                	outputs[j] = this.shipMoves3.get(i);
+                	j++;
+                }
     	    	try {
 					referee.apply(idPlayer, outputs);
 				} catch (WinException e) {
@@ -1929,41 +1961,103 @@ class Referee implements Serializable {
     		}
 	    }
 	    
-	    public String[] outputMove(Referee referee, int idPlayer)
+	    public List<String> rotateLeft ( List<String> tab ) 
+	    {
+	    	if (2 <= tab.size())
+	    	{
+		        List<String> tabrot = new ArrayList<String>();
+		        String firstElement = tab.get(0);
+		        for (int i = 0 ; i < tab.size() - 1; i++)
+		        {
+		            tabrot.add(i, tab.get(i+1));
+		        }
+		        tabrot.add(tab.size() - 1, firstElement);
+		        return tabrot;
+	    	}
+	    	else return tab;
+	    }
+	    
+	    public String[] outputMove(int idPlayer)
 	    {
 	    	String[] outputTurn = new String[this.shipCount];
-	    	int iOutput = 0;
-	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
+	    	for (int iShipCount = 0; iShipCount < this.shipCount; iShipCount++)
 	    	{
-	    	    Ship key = entry.getKey();
-	    	    List<String> value = entry.getValue();
-	    	    if (value.size() != 0)
-	    	    {
-		    	    String output = value.get(0);
-		    	    outputTurn[iOutput] = output; iOutput++;
-		    	    for (Ship ship : referee.ships)
-		    	    {
-		    	    	if (ship.owner != idPlayer) continue;
-		    	    	else ship.lastCommand = output;
-		    	    }
-		    	    System.out.println(output);
-	    	    }
+	    		try
+	    		{
+		    		if (iShipCount == 0)
+		            {
+		            	outputTurn[iShipCount] = shipMoves1.get(0);
+		            	shipMoves1 = rotateLeft(shipMoves1);
+		            	System.out.println(outputTurn[iShipCount]);
+		            }
+		    		else if (iShipCount == 1)
+		            {
+		            	outputTurn[iShipCount] = shipMoves2.get(0);
+		            	shipMoves2 = rotateLeft(shipMoves2);
+		            	System.out.println(outputTurn[iShipCount]);
+		            }
+		    		else if (iShipCount == 2)
+		            {
+		            	outputTurn[iShipCount] = shipMoves3.get(0);
+		            	shipMoves3 = rotateLeft(shipMoves3);
+		            	System.out.println(outputTurn[iShipCount]);
+		            }
+	    		}
+	    		catch (Exception e) // Gameover
+	    		{
+	    			outputTurn[iShipCount] = "WAIT GOING TO DIE";
+	            	System.out.println("WAIT");
+	    		}
 	    	}
+
 	    	return outputTurn;
+	    }
+	    
+	    public String concatenate()
+	    {
+	    	String concatenate = "";
+
+			if (1 <= this.shipCount)
+			{
+				for (int iDepth = 0; iDepth < this.shipMoves1.size() ; iDepth++)
+				{
+					concatenate += this.shipMoves1.get(iDepth) + ";";
+				}
+			}
+			if (2 <= this.shipCount)
+			{
+				for (int iDepth = 0; iDepth < this.shipMoves2.size() ; iDepth++)
+				{
+					concatenate += this.shipMoves2.get(iDepth) + ";";
+				}
+			}
+			if (3 <= this.shipCount)
+			{				
+				for (int iDepth = 0; iDepth < this.shipMoves3.size() ; iDepth++)
+				{
+					concatenate += this.shipMoves3.get(iDepth) + ";";
+				}
+			}
+			return concatenate;
 	    }
 	    
 	    public void display()
 	    {
-	    	for (Map.Entry<Ship, List<String>> entry : this.shipMoves.entrySet())
-	    	{
-	    	    Ship key = entry.getKey();
-	    	    List<String> value = entry.getValue();
-	    	    System.err.println("Printing ship: " + key.toViewString());
-	    	    for (String val : value)
-	    	    {
-	    	    	System.err.println(val);
-	    	    }
-	    	}
+    	    System.err.println("Printing moves 1");
+    	    for (String val : this.shipMoves1)
+    	    {
+    	    	System.err.println(val);
+    	    }
+    	    System.err.println("Printing moves 2");
+    	    for (String val : this.shipMoves2)
+    	    {
+    	    	System.err.println(val);
+    	    }
+    	    System.err.println("Printing moves 3");
+    	    for (String val : this.shipMoves3)
+    	    {
+    	    	System.err.println(val);
+    	    }
     	    System.err.println("sumScore: " + this.sumScore);
 	    }
 	}
@@ -1991,6 +2085,7 @@ class Player implements Serializable {
             // game loop
 			int saveCountShips = 99; // save the last number of ships
 			
+            Referee.Solution bestSolution = null;
             while (gameTurn < 401) {
                 long startTime = System.currentTimeMillis();
                 // Update new inputs
@@ -2024,53 +2119,74 @@ class Player implements Serializable {
 				currentBoard.displayEntities();
 				*/
 				
-				// Heuristic simulation
-	            Referee.Solution bestSolution = null;
+				// Simulation
 				try {
 
 					Referee saveBoard1 = (Referee)(ObjectCloner.deepCopy(currentBoard));
-					bestSolution = new Referee.Solution(saveBoard1, idPlayer);
-					bestSolution.heuristicSimulation(bestSolution.depth, saveBoard1);
-					bestSolution.eval(saveBoard1, idPlayer);
+					if (gameTurn == 1)
+					{
+						bestSolution = new Referee.Solution(saveBoard1, idPlayer);
+						bestSolution.randomize();
+					}
+					else bestSolution.referee = saveBoard1;
+					// bestSolution.heuristicSimulation(bestSolution.depth, saveBoard1);
+					bestSolution.eval(idPlayer);
 				}
 				catch (Exception e)
 				{
-					System.err.println(e);
+					System.err.println("Error heuristic: " + e);
 				}
 
 				// mutate process
-                long endTime; int i = 0;
-	            do
+				List<String> outputTried = new ArrayList<String>();
+                long endTime = System.currentTimeMillis();;
+                while ((endTime - startTime) < 950 && gameTurn == 1 || gameTurn != 1 && (endTime - startTime) < 40)
 	            {
+                	Referee saveBoard2 = null; Referee.Solution solution = null;
 					try {
-						// save
-						Referee saveBoard3 = (Referee)(ObjectCloner.deepCopy(currentBoard));
 						// mutate
-						Referee.Solution solution = (Referee.Solution) ObjectCloner.deepCopy(bestSolution);
-						solution.mutate();
-						solution.eval(saveBoard3, idPlayer);
-						if (bestSolution.sumScore < solution.sumScore)
-						{
-							System.err.println("mutate i: " + i + " successful");
-							System.err.println("Previously");
-							bestSolution.display();
-							System.err.println("Right now");
-							solution.display();
-							
-							bestSolution = solution;
-						}
+						saveBoard2 = (Referee) ObjectCloner.deepCopy(currentBoard);
+						solution = (Referee.Solution) ObjectCloner.deepCopy(bestSolution);
+						solution.referee = saveBoard2;
 					}
 					catch (Exception e)
 					{
-						System.err.println(e);
+						System.err.println("Error copy mutate: " + e);
+					}
+					String concatenate = "";
+					do
+					{
+						if ((endTime - startTime) > 950 && gameTurn == 1 || gameTurn != 1 && (endTime - startTime) > 40) break;
+						solution.mutate();
+						concatenate = solution.concatenate();
+						endTime = System.currentTimeMillis();
+					} while (outputTried.contains(concatenate));
+					if ((endTime - startTime) > 950 && gameTurn == 1 || gameTurn != 1 && (endTime - startTime) > 40) break;
+					if (!outputTried.contains(concatenate))
+					{
+						try
+						{
+							solution.eval(idPlayer);
+							if (bestSolution.sumScore < solution.sumScore)
+							{
+								bestSolution = solution;
+							}
+						}
+						catch (Exception e)
+						{
+							System.err.println("Error eval mutate apply: " + e);
+						}
+
+						outputTried.add(concatenate);
 					}
 					endTime = System.currentTimeMillis();
-	            } while ((endTime - startTime) < 950 && gameTurn == 1 || gameTurn != 1 && (endTime - startTime) < 40);
+	            }
 	           
-	            bestSolution.display();
+	            //bestSolution.display();
 	            
 				// output bestSolution
-				String[] outputTurn = bestSolution.outputMove(currentBoard, idPlayer);
+				String[] outputTurn = bestSolution.outputMove(idPlayer);
+				
 		    	try
 		    	{
 			    	currentBoard.apply(idPlayer, outputTurn);
