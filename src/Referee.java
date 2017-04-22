@@ -1989,7 +1989,6 @@ class Player implements Serializable {
             int depth = 3;
             
             // game loop
-            Referee.Solution bestSolution = new Referee.Solution();
 			int saveCountShips = 99; // save the last number of ships
 			
             while (gameTurn < 401) {
@@ -2024,22 +2023,15 @@ class Player implements Serializable {
 				System.err.println("After update vars");
 				currentBoard.displayEntities();
 				*/
+				
+				// Heuristic simulation
+	            Referee.Solution bestSolution = null;
 				try {
 
 					Referee saveBoard1 = (Referee)(ObjectCloner.deepCopy(currentBoard));
-					Referee.Solution heuristicSolution = new Referee.Solution(saveBoard1, idPlayer);
-					heuristicSolution.heuristicSimulation(heuristicSolution.depth, saveBoard1);
-					heuristicSolution.eval(saveBoard1, idPlayer);
-					if (gameTurn == 1)
-					{
-						bestSolution = heuristicSolution;
-					}
-					else
-					{
-						Referee saveBoard2 = (Referee)(ObjectCloner.deepCopy(currentBoard));
-						bestSolution.eval(saveBoard2, idPlayer);
-						if (bestSolution.sumScore <= heuristicSolution.sumScore) bestSolution = heuristicSolution;
-					}
+					bestSolution = new Referee.Solution(saveBoard1, idPlayer);
+					bestSolution.heuristicSimulation(bestSolution.depth, saveBoard1);
+					bestSolution.eval(saveBoard1, idPlayer);
 				}
 				catch (Exception e)
 				{
@@ -2053,7 +2045,6 @@ class Player implements Serializable {
 					try {
 						// save
 						Referee saveBoard3 = (Referee)(ObjectCloner.deepCopy(currentBoard));
-						Referee saveBoard4 = (Referee)(ObjectCloner.deepCopy(currentBoard));
 						// mutate
 						Referee.Solution solution = (Referee.Solution) ObjectCloner.deepCopy(bestSolution);
 						solution.mutate();
