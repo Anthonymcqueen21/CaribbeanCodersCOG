@@ -1505,15 +1505,15 @@ class Referee implements Serializable {
 
     protected int eval(int idPlayer) {
     	int idOpponentPlayer = (idPlayer == 1) ? 0 : 1;
-    	int barrels = 0; int teamUp = 0;
+    	int barrels = 0; int teamUp = 0; int hunt = 0;
     	if (this.barrels.size() != 0)
     	{
         	for (Ship ship : players.get(idPlayer).shipsAlive)
         	{
         		RumBarrel rum = ship.closestBarrel(this.barrels);
         		int distance = ship.bow().distanceTo(rum.position);
-        		barrels += 10 / distance;
-        		if (distance == 1) barrels = 0;
+        		barrels += 12 / distance;
+        		if (distance == 1 ) barrels = 0;
         	}
     	}
     	if (1 < players.get(idPlayer).shipsAlive.size())
@@ -1524,17 +1524,32 @@ class Referee implements Serializable {
             	{
             		if (ship1.id == ship2.id) continue;
             		int distance = ship1.position.distanceTo(ship2.position);
-            		if (distance == 1) teamUp -= 1 / distance;
+            		if (distance <= 1) teamUp -= 1 / distance;
+            		else if (distance <= 3) teamUp +=  3 / distance;
             	}
         	}
     	}
-    	int shotDone = 0;
-    	for (Ship ship : players.get(idPlayer).shipsAlive)
+    	Ship mainTarget = null; int maxRum = 0;
+    	if (1 < players.get(idOpponentPlayer).shipsAlive.size() && this.barrels.size() == 0)
     	{
-    		if (ship.cannonCooldown != 0) shotDone += 0.2;
+    		for (Ship opponentShip : players.get(idOpponentPlayer).shipsAlive)
+    		{
+    			if (maxRum < opponentShip.health)
+    			{
+    				mainTarget = opponentShip;
+    				maxRum = opponentShip.health;
+    			}
+    		}
+       		for (Ship ship : players.get(idPlayer).shipsAlive)
+    		{
+       			int distance = ship.bow().distanceTo(mainTarget.position);
+       			if (distance < 4 && ship.speed != 0) hunt += 2 / distance;
+    		}
     	}
+    	int shotDone = 0;
     	
-        return shotDone + teamUp + barrels + players.get(idPlayer).getScore() - players.get(idOpponentPlayer).getScore();
+    	System.err.println("barrels: " + barrels);
+        return hunt + shotDone + teamUp + barrels + players.get(idPlayer).getScore() - players.get(idOpponentPlayer).getScore();
     }
 
     protected String[] getGameSummary(int round) {
@@ -1727,20 +1742,16 @@ class Referee implements Serializable {
 		int depth;
 		int idPlayer;
 		int idOpponentPlayer;
-		
-		// Heuristic
-        List<Coord> fireTargets;
 	    
 	    public Solution(Referee referee, int playerId)
 	    {
-	    	this.depth = 3;
+	    	this.depth = 4;
 	    	this.shipMoves1 = new ArrayList<String>();
 	    	this.shipMoves2 = new ArrayList<String>();
 	    	this.shipMoves3 = new ArrayList<String>();
 	    	this.shipCount = referee.players.get(playerId).shipsAlive.size();
 	    	this.score = new Integer[depth];
 	    	this.sumScore = 0;
-            this.fireTargets = new ArrayList<Coord>();
             this.referee = referee;
             this.idPlayer = 1;
             this.idOpponentPlayer = (idPlayer == 1) ? 0 : 1;
@@ -1849,15 +1860,17 @@ class Referee implements Serializable {
 	    {
     	    for (int i = 0; i < depth; i++)
     	    {
-                if (1 <= shipCount && referee.random.nextBoolean() && 1 <= this.referee.players.get(idPlayer).shipsAlive.size())
+    	    	int amplitude = 1 / (i + 1);
+    	    	
+                if (referee.random.nextInt() < amplitude && 1 <= this.referee.players.get(idPlayer).shipsAlive.size())
                 {
                 	shipMoves1.set(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(0)));
                 }
-                if (2 <= shipCount && referee.random.nextBoolean() && 2 <= this.referee.players.get(idPlayer).shipsAlive.size())
+                if (referee.random.nextInt() < amplitude && 2 <= this.referee.players.get(idPlayer).shipsAlive.size())
                 {
                 	shipMoves2.set(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(1)));
                 }
-                if (3 <= shipCount && referee.random.nextBoolean() && 3 <= this.referee.players.get(idPlayer).shipsAlive.size())
+                if (referee.random.nextInt() < amplitude && 3 <= this.referee.players.get(idPlayer).shipsAlive.size())
                 {
                 	shipMoves3.set(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(2)));
                 }
@@ -1867,15 +1880,15 @@ class Referee implements Serializable {
 	    {
     	    for (int i = 0; i < this.depth; i++)
     	    {
-                if (1 <= shipCount)
+                if (1 <=  this.referee.players.get(idPlayer).shipsAlive.size())
                 {
                 	shipMoves1.add(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(0)));
                 }
-                if (2 <= shipCount)
+                if (2 <=  this.referee.players.get(idPlayer).shipsAlive.size())
                 {
                 	shipMoves2.add(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(1)));
                 }
-                if (3 <= shipCount)
+                if (3 <=  this.referee.players.get(idPlayer).shipsAlive.size())
                 {
                 	shipMoves3.add(i, randomAction(this.referee.players.get(idPlayer).shipsAlive.get(2)));
                 }
@@ -1899,7 +1912,8 @@ class Referee implements Serializable {
 			        case 1: {
 			        	if (ship.cannonCooldown == 0)
 			        	{
-				        	List<Coord> fireTargets = this.computeFireTargets(ship);
+				        	List<Coord> fireTargets = new ArrayList<Coord>();
+				        	fireTargets = this.computeFireTargets(ship);
 				        	if (fireTargets.size() != 0)
 				        	{
 				        		int idFireTarget = referee.random.nextInt(fireTargets.size());
@@ -1926,17 +1940,17 @@ class Referee implements Serializable {
     			int j = 0;
         		String[] outputs = new String[referee.players.get(idPlayer).shipsAlive.size()];
         		
-                if (1 <= shipCount)
+                if (1 <= referee.players.get(idPlayer).shipsAlive.size())
                 {
                 	outputs[j] = this.shipMoves1.get(i);
                 	j++;
                 }
-                if (2 <= shipCount)
+                if (2 <= referee.players.get(idPlayer).shipsAlive.size())
                 {
                 	outputs[j] = this.shipMoves2.get(i);
                 	j++;
                 }
-                if (3 <= shipCount)
+                if (3 <= referee.players.get(idPlayer).shipsAlive.size())
                 {
                 	outputs[j] = this.shipMoves3.get(i);
                 	j++;
@@ -1979,8 +1993,8 @@ class Referee implements Serializable {
 	    
 	    public String[] outputMove(int idPlayer)
 	    {
-	    	String[] outputTurn = new String[this.shipCount];
-	    	for (int iShipCount = 0; iShipCount < this.shipCount; iShipCount++)
+	    	String[] outputTurn = new String[this.referee.players.get(idPlayer).shipsAlive.size()];
+	    	for (int iShipCount = 0; iShipCount < this.referee.players.get(idPlayer).shipsAlive.size(); iShipCount++)
 	    	{
 	    		try
 	    		{
@@ -2006,7 +2020,7 @@ class Referee implements Serializable {
 	    		catch (Exception e) // Gameover
 	    		{
 	    			outputTurn[iShipCount] = "WAIT GOING TO DIE";
-	            	System.out.println("WAIT");
+	            	System.out.println("WAIT GOING TO DIE");
 	    		}
 	    	}
 
@@ -2080,7 +2094,7 @@ class Player implements Serializable {
             currentBoard.initEmptyReferee(2, prop);
             int gameTurn = 1;
             int idPlayer = 1;
-            int depth = 3;
+            int depth = 4;
             
             // game loop
 			int saveCountShips = 99; // save the last number of ships
@@ -2131,6 +2145,7 @@ class Player implements Serializable {
 					else bestSolution.referee = saveBoard1;
 					// bestSolution.heuristicSimulation(bestSolution.depth, saveBoard1);
 					bestSolution.eval(idPlayer);
+					bestSolution.referee = currentBoard;
 				}
 				catch (Exception e)
 				{
@@ -2147,7 +2162,6 @@ class Player implements Serializable {
 						// mutate
 						saveBoard2 = (Referee) ObjectCloner.deepCopy(currentBoard);
 						solution = (Referee.Solution) ObjectCloner.deepCopy(bestSolution);
-						solution.referee = saveBoard2;
 					}
 					catch (Exception e)
 					{
@@ -2170,6 +2184,7 @@ class Player implements Serializable {
 							if (bestSolution.sumScore < solution.sumScore)
 							{
 								bestSolution = solution;
+								bestSolution.referee = currentBoard;
 							}
 						}
 						catch (Exception e)
